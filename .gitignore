@@ -21,6 +21,11 @@ __pycache__/
 # Per-user Claude Code settings (local-only by convention)
 .claude/settings.local.json
 
+# Paper source and the GR.fr Mathematica notebook — kept locally but not
+# part of the shared repo (the code is what's being shared).
+GR Bootstrapping for Venusians.tex
+GR.fr
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
