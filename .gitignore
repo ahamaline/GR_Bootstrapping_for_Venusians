@@ -1,0 +1,30 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# cProfile dumps (we generate these during performance work)
+*.prof
+
+# LaTeX build artifacts (from compiling GR Bootstrapping for Venusians.tex)
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.pdf
+
+# Per-user Claude Code settings (local-only by convention)
+.claude/settings.local.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

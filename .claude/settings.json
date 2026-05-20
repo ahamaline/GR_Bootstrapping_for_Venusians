@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(C:\\Users\\AHAMAL~1\\AppData\\Local\\Temp\\claude\\**)"
+    ]
+  }
+}

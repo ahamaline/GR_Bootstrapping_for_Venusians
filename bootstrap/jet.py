@@ -1,0 +1,427 @@
+"""
+Jet-space operations for the GR bootstrapping computation.
+
+The "jet space" is the space of fields and their derivatives at a point.
+Our jet variables are h_{μν}, h_{μν,ρ}, h_{μν,ρσ} (and similarly for 
+matter fields). The key operations are:
+
+1. jet_derivative: ∂/∂(field variable) — differentiates an expression 
+   w.r.t. a jet variable, producing symmetrized Kronecker deltas.
+   
+2. total_derivative: ∂_τ — spacetime derivative acting via the chain 
+   rule on jet variables (h_{μν} → h_{μν,τ}, etc.)
+
+Both operations are the building blocks for the Euler-Lagrange derivative
+and for the Helmholtz conditions.
+"""
+
+from sympy import S, Rational, Add
+from sympy.tensor.tensor import (
+    TensAdd, TensMul, TensExpr, TensorHead, TensorIndex, Tensor
+)
+from bootstrap.tensor_algebra import (
+    Lorentz, metric, h, dh, ddh,
+    fresh_indices, canon, _JET_HIERARCHY, _matter_fields
+)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _sum_terms(terms):
+    """One-shot sum of tensor terms, avoiding the O(N^2) repeated `result + t`.
+
+    sympy's `TensAdd.__add__` calls `_tensAdd_collect_terms` each time, so
+    a naive loop `result = result + t` re-normalizes the growing accumulator
+    on every step. Building the TensAdd once from the full list runs the
+    collect pass once. Skips S.Zero entries. Returns S.Zero if empty,
+    the single term if length-1, otherwise a TensAdd.
+    """
+    nonzero = [t for t in terms if t is not S.Zero and t != 0]
+    if not nonzero:
+        return S.Zero
+    if len(nonzero) == 1:
+        return nonzero[0]
+    return TensAdd(*nonzero)
+
+
+def _is_tensor_atom(expr):
+    """Check if expr is a single tensor factor like h(-mu,-nu)."""
+    return isinstance(expr, Tensor)
+
+def _get_component(expr):
+    """Get the TensorHead from a Tensor instance."""
+    if isinstance(expr, Tensor):
+        return expr.component
+    return None
+
+def _get_indices(expr):
+    """Get the list of TensorIndex from a Tensor instance."""
+    if isinstance(expr, Tensor):
+        return list(expr.get_indices())
+    return []
+
+def _decompose_tensmul(expr):
+    """Decompose a TensMul into (coefficient, [tensor_factors]).
+    
+    Returns:
+        coeff: numerical/symbolic coefficient
+        factors: list of Tensor objects (individual tensor factors)
+    """
+    if isinstance(expr, Tensor):
+        return S.One, [expr]
+    if not isinstance(expr, TensMul):
+        # Might be a pure number
+        return expr, []
+    
+    coeff = expr.coeff
+    factors = []
+    for arg in expr.args:
+        if isinstance(arg, Tensor):
+            factors.append(arg)
+        elif isinstance(arg, TensMul):
+            c, fs = _decompose_tensmul(arg)
+            coeff *= c
+            factors.extend(fs)
+    return coeff, factors
+
+def _decompose_tensadd(expr):
+    """Decompose a TensAdd into a list of its terms."""
+    if isinstance(expr, TensAdd):
+        return list(expr.args)
+    return [expr]
+
+def _rebuild_tensmul(coeff, factors):
+    """Rebuild a TensMul from coefficient and tensor factors."""
+    if not factors:
+        return coeff
+    result = coeff
+    for f in factors:
+        result = result * f
+    return result
+
+# ---------------------------------------------------------------------------
+# Matching: does a tensor factor match a jet variable type?
+# ---------------------------------------------------------------------------
+
+def _get_h_heads():
+    """Get the set of all h-type TensorHeads (h, dh, ddh)."""
+    return {h, dh, ddh}
+
+def _get_all_jet_heads():
+    """Get the set of all registered jet TensorHeads."""
+    return set(_JET_HIERARCHY.keys())
+
+# ---------------------------------------------------------------------------
+# Core: jet_derivative_of_factor
+# ---------------------------------------------------------------------------
+
+def _jet_derivative_of_factor(factor, wrt_head, wrt_indices):
+    """Differentiate a single tensor factor w.r.t. a jet variable.
+    
+    Computes ∂(factor)/∂(wrt_head_{wrt_indices}).
+    
+    If factor has the same TensorHead as wrt_head, produces the appropriate
+    symmetrized Kronecker delta product. Otherwise returns 0.
+    
+    The symmetrization accounts for the fact that h_{μν} = h_{νμ} (so
+    ∂h_{μν}/∂h_{αβ} = ½(δ^α_μ δ^β_ν + δ^α_ν δ^β_μ)), and similarly
+    for symmetric derivative index pairs.
+    
+    Args:
+        factor: a Tensor instance (e.g., h(-mu, -nu))
+        wrt_head: TensorHead we are differentiating by (e.g., h)
+        wrt_indices: list of TensorIndex for the differentiation variable
+            (e.g., [alpha, beta] for ∂/∂h_{αβ}). These should be 
+            CONTRAVARIANT (positive) since the result of differentiating
+            by a covariant variable gives a contravariant free index.
+    
+    Returns:
+        Tensor expression (product of metrics/deltas), or S.Zero.
+    """
+    if _get_component(factor) != wrt_head:
+        return S.Zero
+    
+    factor_indices = _get_indices(factor)
+    
+    if len(factor_indices) != len(wrt_indices):
+        return S.Zero
+    
+    # Get the symmetry information for this jet variable
+    info = _JET_HIERARCHY.get(wrt_head, {})
+    n_field = info.get('n_field_indices', 0)
+    
+    # Determine which groups of indices are symmetric
+    # For h: indices [0,1] are symmetric (field indices)
+    # For dh: indices [0,1] are symmetric (field), [2] is single
+    # For ddh: indices [0,1] are symmetric (field), [2,3] are symmetric (deriv)
+    # For scalar field: no field indices, derivative indices may be symmetric
+    # For vector field: [0] is field, [1,2] may be symmetric (for 2nd deriv)
+    
+    # Build the list of symmetric groups of indices
+    sym_groups = _get_symmetric_groups(wrt_head, n_field, len(wrt_indices))
+    
+    # Generate all permutations consistent with the symmetries.
+    # For each symmetric group, we need to sum over all permutations
+    # of the wrt_indices within that group, divided by the group size.
+    from itertools import permutations as iterperms
+    
+    # Compute the symmetrization factor and the set of index permutations
+    perms, normalization = _symmetric_permutations(wrt_indices, sym_groups)
+    
+    # Build the result: sum over permutations of products of deltas
+    perm_terms = []
+    for perm_wrt in perms:
+        # Each permutation gives a product of Kronecker deltas:
+        # δ^{perm_wrt[0]}_{factor_idx[0]} * δ^{perm_wrt[1]}_{factor_idx[1]} * ...
+        term = S.One
+        for wi, fi in zip(perm_wrt, factor_indices):
+            # wi should be contravariant, fi should be covariant
+            # metric(wi, fi) where wi is up and fi is down gives δ^wi_fi
+            term = term * metric(wi, fi)
+        perm_terms.append(term)
+    return normalization * _sum_terms(perm_terms)
+
+def _get_symmetric_groups(head, n_field, n_total):
+    """Get the symmetric index groups for a TensorHead.
+    
+    Returns a list of lists, each inner list being indices (positions)
+    that are symmetric with each other.
+    
+    Uses n_field (number of field indices) and n_total to determine
+    symmetry generically:
+    - n_field == 2: field indices [0,1] are symmetric (rank-2 symmetric tensor)
+    - derivative indices: symmetric if exactly 2 (second spacetime derivative)
+    
+    Examples:
+        h   (n_field=2, n_total=2): [[0, 1]]
+        dh  (n_field=2, n_total=3): [[0, 1]]
+        ddh (n_field=2, n_total=4): [[0, 1], [2, 3]]
+        dddh(n_field=2, n_total=5): [[0, 1], [2, 3, 4]]
+        ginv(n_field=2, n_total=2): [[0, 1]]
+        dg  (n_field=2, n_total=3): [[0, 1]]
+        dphi (n_field=0, n_total=1): []
+        ddphi(n_field=0, n_total=2): [[0, 1]]
+        dA   (n_field=1, n_total=2): []
+        ddA  (n_field=1, n_total=3): [[1, 2]]
+    """
+    groups = []
+    
+    # Field indices: symmetric if there are exactly 2 (rank-2 symmetric tensor)
+    if n_field == 2 and n_total >= 2:
+        groups.append([0, 1])
+    
+    # Derivative indices (positions n_field .. n_total-1):
+    # symmetric if there are 2 or more (symmetric higher derivatives)
+    n_deriv = n_total - n_field
+    if n_deriv >= 2:
+        groups.append(list(range(n_field, n_total)))
+    
+    return groups
+
+def _symmetric_permutations(indices, sym_groups):
+    """Generate all distinct index permutations from symmetric groups.
+    
+    Args:
+        indices: list of TensorIndex
+        sym_groups: list of lists of positions that are symmetric
+        
+    Returns:
+        (permutations, normalization_factor)
+        permutations: list of tuples, each a permutation of indices
+        normalization_factor: Rational number (1/count)
+    """
+    from itertools import permutations as iterperms
+    
+    if not sym_groups:
+        # No symmetry: only the identity permutation
+        return [tuple(indices)], S.One
+    
+    # Generate all permutations within each symmetric group
+    # and take their direct product
+    idx_list = list(indices)
+    all_perms = {tuple(range(len(idx_list)))}  # start with identity
+    
+    for group in sym_groups:
+        new_perms = set()
+        for existing_perm in all_perms:
+            # Generate all permutations of the group positions
+            group_vals = [existing_perm[g] for g in group]
+            for gp in iterperms(group_vals):
+                new_perm = list(existing_perm)
+                for g_pos, gp_val in zip(group, gp):
+                    new_perm[g_pos] = gp_val
+                new_perms.add(tuple(new_perm))
+        all_perms = new_perms
+    
+    # Convert position permutations to index permutations
+    result = []
+    for perm in all_perms:
+        result.append(tuple(idx_list[p] for p in perm))
+    
+    normalization = Rational(1, len(result))
+    return result, normalization
+
+
+# ---------------------------------------------------------------------------
+# Public API: jet_derivative
+# ---------------------------------------------------------------------------
+
+def jet_derivative(expr, wrt_head, wrt_indices):
+    """Differentiate a tensor expression w.r.t. a jet variable.
+
+    Computes ∂(expr)/∂(wrt_head_{wrt_indices}).
+
+    For h-type variables, the result includes the ½-symmetrization
+    factor for symmetric index pairs. Applies the Leibniz (product) rule
+    on products of tensor factors.
+
+    The result is automatically canonicalized to keep expressions compact.
+    """
+    if isinstance(expr, (int, float)):
+        return S.Zero
+    if expr == S.Zero:
+        return S.Zero
+
+    # Handle sums: distribute linearly
+    if isinstance(expr, TensAdd):
+        terms = [jet_derivative(t, wrt_head, wrt_indices) for t in expr.args]
+        result = _sum_terms(terms)
+        return canon(result) if isinstance(result, TensExpr) else result
+
+    # Handle single tensor atom
+    if isinstance(expr, Tensor):
+        return canon(_jet_derivative_of_factor(expr, wrt_head, wrt_indices))
+
+    # Handle product (TensMul): Leibniz rule
+    if isinstance(expr, TensMul):
+        coeff, factors = _decompose_tensmul(expr)
+
+        if not factors:
+            return S.Zero
+
+        leibniz_terms = []
+        for i, factor in enumerate(factors):
+            dfactor = _jet_derivative_of_factor(factor, wrt_head, wrt_indices)
+            if dfactor == S.Zero:
+                continue
+            other_factors = factors[:i] + factors[i+1:]
+            term = coeff * dfactor
+            for f in other_factors:
+                term = term * f
+            leibniz_terms.append(term)
+        result = _sum_terms(leibniz_terms)
+        return canon(result) if isinstance(result, TensExpr) else result
+
+    # Handle expressions with scalar coefficient (like Rational * TensMul)
+    if hasattr(expr, 'args'):
+        try:
+            coeff, factors = _decompose_tensmul(expr)
+            if factors:
+                inner = _rebuild_tensmul(S.One, factors)
+                d_inner = jet_derivative(inner, wrt_head, wrt_indices)
+                result = coeff * d_inner
+                return canon(result) if isinstance(result, TensExpr) else result
+        except (TypeError, AttributeError):
+            pass
+
+    return S.Zero
+
+
+# ---------------------------------------------------------------------------
+# Public API: total_derivative
+# ---------------------------------------------------------------------------
+
+def total_derivative(expr, deriv_index):
+    """Take the total spacetime derivative ∂_τ of a tensor expression.
+    
+    This acts via the chain rule on each jet variable:
+        ∂_τ h_{μν}     = h_{μν,τ}       (i.e., dh_{μν,τ})
+        ∂_τ h_{μν,ρ}   = h_{μν,ρτ}      (i.e., ddh_{μν,ρτ})
+        ∂_τ h_{μν,ρσ}  = h_{μν,ρστ}     — NOT SUPPORTED (3rd derivatives)
+        ∂_τ φ          = φ_{,τ}          (dphi_τ)
+        ∂_τ φ_{,μ}     = φ_{,μτ}        (ddphi_{μτ})
+        ∂_τ η_{μν}     = 0              (background metric is constant)
+    
+    Applies the Leibniz rule on products.
+    
+    Args:
+        expr: tensor expression
+        deriv_index: TensorIndex for the derivative direction (should be
+            covariant/negative, representing ∂_τ)
+            
+    Returns:
+        Canonicalized tensor expression for ∂_τ(expr).
+        
+    Raises:
+        ValueError: if the expression contains a jet variable at the 
+            highest level (e.g., ddh) that cannot be differentiated further.
+    """
+    if isinstance(expr, (int, float)):
+        return S.Zero
+    if expr == S.Zero:
+        return S.Zero
+
+    if isinstance(expr, TensAdd):
+        terms = [total_derivative(t, deriv_index) for t in expr.args]
+        result = _sum_terms(terms)
+        return canon(result) if isinstance(result, TensExpr) else result
+
+    if isinstance(expr, Tensor):
+        return _total_derivative_of_factor(expr, deriv_index)
+
+    if isinstance(expr, TensMul):
+        coeff, factors = _decompose_tensmul(expr)
+
+        if not factors:
+            return S.Zero
+
+        leibniz_terms = []
+        for i, factor in enumerate(factors):
+            d_factor = _total_derivative_of_factor(factor, deriv_index)
+            if d_factor == S.Zero:
+                continue
+            other_factors = factors[:i] + factors[i+1:]
+            term = coeff * d_factor
+            for f in other_factors:
+                term = term * f
+            leibniz_terms.append(term)
+        result = _sum_terms(leibniz_terms)
+        return canon(result) if isinstance(result, TensExpr) else result
+
+    return S.Zero
+
+
+def _total_derivative_of_factor(factor, deriv_index):
+    """Take ∂_τ of a single tensor factor.
+    
+    Replaces the factor by its child in the jet hierarchy with the
+    derivative index appended.
+    """
+    comp = _get_component(factor)
+    if comp is None:
+        return S.Zero
+    
+    # The metric is constant: ∂_τ η_{μν} = 0
+    if comp == metric:
+        return S.Zero
+    
+    info = _JET_HIERARCHY.get(comp)
+    if info is None:
+        # Unknown tensor head — treat as constant
+        return S.Zero
+    
+    child = info.get('child')
+    if child is None:
+        raise ValueError(
+            f"Cannot take total derivative of {comp}: "
+            f"no higher jet variable defined (would need 3rd derivatives). "
+            f"This likely means the expression has too many derivatives."
+        )
+    
+    # Build the child tensor with the same indices plus the derivative index
+    old_indices = _get_indices(factor)
+    new_indices = old_indices + [deriv_index]
+
+    return child(*new_indices)

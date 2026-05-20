@@ -1,0 +1,693 @@
+%% ****** Start of file apstemplate.tex ****** %
+%%
+%%
+%%   This file is part of the APS files in the REVTeX 4.2 distribution.%%
+%%   Copyright (c) 2024 The American Physical Society.
+%%
+%%   See the REVTeX 4 README file for restrictions and more information.
+%%
+%
+% This is a template for producing manuscripts for use with REVTEX 4.2
+% Copy this file to another name and then work on that file.
+% That way, you always have this original template file to use.
+%
+% Group addresses by affiliation; use superscriptaddress for long
+% author lists, or if there are many overlapping affiliations.
+%  N.B. The groupedaddress option will reorder the author list based
+%  on the order in which affiliations appear. Please be sure to check the author 
+%  order. You can also use the unsortedaddress(?) option instead to prevent that
+%  behavior.
+% For Phys. Rev. appearance, change preprint to twocolumn.
+% Choose physrev, prl, or rmp for journal
+%  N.B. physrev is appropriate for all APS journals except prl and rmp
+%  Add 'draft' option to mark overfull boxes with black boxes
+%  Add 'showkeys' option to make keywords appear
+\documentclass[aps,physrev,preprint,groupedaddress]{revtex4-2}
+%\documentclass[aps,physrev,preprint,superscriptaddress]{revtex4-2}
+%\documentclass[aps,prl,preprint,superscriptaddress]{revtex4-2}
+%\documentclass[aps,prl,reprint,groupedaddress]{revtex4-2}
+%\documentclass[aps,rmp,preprint,superscriptaddress]{revtex4-2}
+%\documentclass[aps,rmp,reprint,groupedaddress]{revtex4-2}
+
+% You should use BibTeX and apsrev.bst for references
+% Choosing a journal automatically selects the correct APS
+% BibTeX style file (bst file), so only uncomment the line
+% below if necessary.
+%\bibliographystyle{apsrev4-2}
+
+\usepackage{amsmath,amssymb}
+\usepackage{cancel}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+
+%AY-added a color package and a command that will allow me to leave comments. 
+\usepackage{xcolor}
+\newcommand{\AY}[1]{\textcolor{red}{AY: #1}}
+\newcommand{\AM}[1]{\textcolor{blue}{AM: #1}}
+
+\begin{document}
+
+% Use the \preprint command to place your local institutional report
+% number in the upper righthand corner of the title page in preprint mode.
+% Multiple \preprint commands are allowed.
+% Use the 'preprintnumbers' class option to override journal defaults
+% to display numbers if necessary
+%\preprint{}
+
+%Title of paper
+\title{GR Bootstrapping For Venusians}
+
+% repeat the \author .. \affiliation  etc. as needed
+% \email, \thanks, \homepage, \altaffiliation all apply to the current
+% author. Explanatory text should go in the []'s, actual e-mail
+% address or url should go in the {}'s for \email and \homepage.
+% Please use the appropriate macro foreach each type of information
+
+% \affiliation command applies to all authors since the last
+% \affiliation command. The \affiliation command should follow the
+% other information
+% \affiliation can be followed by \email, \homepage, \thanks as well.
+\author{Ahron Maline}
+%\email[]{Your e-mail address}
+%\homepage[]{Your web page}
+%\thanks{}
+%\altaffiliation{}
+\affiliation{}
+
+\author{Ido Kaminer}
+%\email[]{Your e-mail address}
+%\homepage[]{Your web page}
+%\thanks{}
+%\altaffiliation{}
+\affiliation{}
+
+%Collaboration name if desired (requires use of superscriptaddress
+%option in \documentclass). \noaffiliation is required (may also be
+%used with the \author command).
+%\collaboration can be followed by \email, \homepage, \thanks as well.
+%\collaboration{}
+%\noaffiliation
+
+\date{\today}
+
+\begin{abstract}
+According to a familiar piece of physics folklore, made famous by Feynman, one can derive General Relativity from a purely field-theoretic perspective. In this ``Venusian" approach, one begins with the linear theory of a spin-2 field on Minkowski space and introduces, order by order, the terms dictated by energy-momentum conservation. This is believed to lead inevitably to the full Einstein's Field Equation.
+However, no procedure of this kind is actually found in the literature. The existing approaches need to import concepts from our existing, geometry-based knowledge of general relativity, such as the gauge symmetry corresponding to diffeomorphism invariance \cite{Feynlectures,Wald} or auxiliary variables engineered to represent a connection \cite{Deser}. This lacuna has led some \cite{Padmanabhan,Butcher,Barcelo} to argue that the claim is false -- that a purely ``Venusian" analysis is not sufficient to determine the theory. 
+Here, we fill that gap by presenting an explicit method to derive the required terms to all orders, making it clear that they are indeed unique up to field redefinition. The procedure, and the reasoning leading to it, require no knowledge of Riemannian geometry. Our method relies solely on requiring that the field equation must arise as the Euler-Lagrange equation of some action, using the conditions formulated long ago by Helmholtz \cite{Helmholtz}.
+\end{abstract}
+
+% insert suggested keywords - APS authors don't need to do this
+%\keywords{}
+
+%\maketitle must follow title, authors, abstract, and keywords
+\maketitle
+
+% body of paper here - Use proper section commands
+% References should be done using the \cite, \eqref, and \label commands
+\section{Introduction}
+% Put \label in argument of \section for cross-referencing
+%\section{\label{}}
+\begin{quotation}
+\ldots{}we imagine that in some small region of the universe, say a planet such as Venus, we have scientists who know all about the other
+thirty fields of the universe, who know just what we do about nucleons,
+mesons, etc., but who do not know about gravitation. And suddenly, an
+amazing new experiment is performed, which shows that two large neutral
+masses attract each other with a very, very tiny force. Now, what would
+the Venusians do with such an amazing extra experimental fact to be
+explained? They would probably try to interpret it in terms of the field
+theories which are familiar to them\ldots{}
+
+\textit{-Feynman Lectures on Gravitation}\cite{Feynlectures}
+\end{quotation}
+In this immortal lecture series, Feynman lays out at length how the Venusians
+could develop General Relativity (GR) without any geometric motivation. They would instead think of gravity as a force existing in Minkowski spacetime, mediated by a field \(h_{\mu\nu}\). He explains how they would work out that \(h_{\mu\nu}\) must be a symmetric tensor, and that it approximately satisfies a linear wave equation, with the matter energy-momentum tensor \(T_{M}^{\mu\nu}\) as its source:
+\begin{equation} \label{lin}
+W^{\mu\nu} = - \kappa T_{M}^{\mu\nu},
+\end{equation}
+where 
+\begin{equation} \label{W}
+W^{\mu\nu} = h^{\mu\nu,\rho}{}_\rho + h^\rho{}_\rho{}^{,\mu\nu} - h^{\mu\rho}{}_{,\rho}{}^\nu 
+- h^{\nu\rho}{}_{,\rho}{}^\mu - \eta^{\mu\nu}h^\rho{}_\rho{}^{,\sigma}{}_\sigma + \eta^{\mu\nu}h^{\rho\sigma}{}_{,\rho\sigma}
+\end{equation} 
+is a tensor wave operator applied to \(h_{\mu\nu}\) (analogous to \(\phi^{,\mu}{}_\mu\) for scalars, and to \(-F^{\mu\nu}{}_{,\nu}=V^{\mu,\nu}{}_\nu-V^{\nu,\mu}{}_\nu\) for vectors), and \(\kappa\) is the measured coupling constant of the theory, related to Newton's constant \(G\) by \(\kappa^2=8\pi G \). \AY{Wouldn't the Venusians also notice that $h_{\mu\nu}$ is invariant under the transformation $h_{\mu\nu} \to h_{\mu\nu} + \partial_{\mu}\xi_{\nu} + \partial_{\nu}\xi_{\mu}$?} \AM{They might notice that, but what good does it do when the interaction $h_{\mu\nu}T_M^{\mu\nu}$ does not share the symmetry? One approach they could take is to start looking for ways to fix that, and end up inventing Lie derivatives... but it's not at all obvious, if they aren't already thinking geometrically.  And in a classical field theory it's also not obvious that there needs to be any such symmetry, }\AY{It's hard to predict what the Venusians think. But isn't this exactly like a gauge symmetry? Once we have a free theory with a gauge theory we add interactions which preserve it. I'm fine if this isn't the program you're after. It's just an observation.}\AM{Right, I'm just saying that in order to define gauge-invariant interactions we need to discover how the symmetry acts on the matter fields, namely by Lie derivatives. It's not an obvious thing to suggest!}
+
+We Earthlings might recognize \(W^{\mu\nu}\) as {(}\(- \kappa^{- 1}\) times{)} the lowest-order terms of Einstein tensor
+\(G^{\mu\nu}\), if we
+write the metric as
+\begin{equation}
+g_{\mu\nu} = \eta_{\mu\nu} + 2\kappa h_{\mu\nu}
+\end{equation}
+and expand \(G^{\mu\nu}\) in powers of \(h_{\mu\nu}\). The Venusians will
+instead have found this formula by particle-theoretic methods: it is the second-derivative part of the field equation for the (massive or massless) spin-2 particle, as found by Fierz and Pauli \cite{FierzPauli}. See the Feynman Lectures\cite{Feynlectures} for his beautiful account of how the Venusians would reach this point.
+
+We focus on the next part of Feynman's story: how the Venusians might complete their linear theory, and arrive at the nonlinear Einstein Field Equation (EFE). They would begin by noting that the energy-momentum appearing on the right-hand side (RHS) of \eqref{lin} is not conserved, since the matter fields exchange energy and momentum with the gravitational field.\AY{I don't understand, doesn't $W$ satisfy the linearized Bianchi identity?}\AM{Yes, indeed this is in conflict with the linearized Bianchi identity, as we will explain in the next section. Do you think something needs to be clarified at this point?}\AY{I'm not sure I understand in what sense the stress tensor is not conserved. If the Bianchi identity is satisfied then isn't the stress tensor conserved?}\AM{It sounds like there is some point that's unclear here, but I don't see what it is? It's just a fact that $T_M^{\mu\nu}{}_{,\nu}\ne0$, e.g. a falling apple gets kinetic energy that wasn't part of the tensor.} To fix this, they would need to add terms \(- \kappa T_{h}^{\mu\nu(2)}\), quadratic in \(h_{\mu\nu}\), to the energy-momentum, representing the energy and momentum of the gravitational field itself. These modifications will turn out to equal the second-order terms in the expansion of the Einstein tensor. 
+
+
+The ``Bootstrapping Claim" that we defend in this paper is the statement that it is possible to iterate such a procedure to all orders, and so uniquely derive the full EFE (as a perturbative expansion). The terms added at each order lead to new violations of the conservation law, requiring new energy-momentum terms one order higher, and so on to infinity. Feynman himself, in his lectures, did not do this past the quadratic order -- instead he moved on to having the Venusians discover the covariant energy-momentum conservation law, and from there effectively derive general covariance --
+but he did indicate that it could in principle be done \footnote{``There are yet some loose ends in our theory; we might conceive that the hard-working among the Venusian theorists might be dissatisfied with a theory which left third-order effects unspecified, and some of them might pursue the chase after functions \(F^4\) and then \(F^5\) to be added to the Lagrangian integral to make the theory consistent to higher orders. This approach is an incredibly laborious procedure to calculate unobservable corrections, so we shall not emulate our fictional Venusians in this respect."\cite{Feynlectures}}. This Claim is widely believed as folklore in the physics community. If true, it is arguably the most raw, immediate expression of the idea that a massless spin-2 theory intrinsically contains the structure that we know of as ``general covariance".
+
+The status of the Bootstrapping Claim is disputed, with several authors \cite{Padmanabhan,Butcher,Barcelo} arguing that it is false. Padmanabhan \cite{Padmanabhan} condemns it as a ``myth". \AY{I'd recommend removing the last sentence: (1) Quoting language like `myth' makes the discussion rhetorical instead of scientific. (2) It also gives the impression that you are singling out a particular author and characterizing his views as extreme.}\AM{I'm afraid I kind of do need to make this a little bit about rhetoric. If there hadn't been this popular belief, and a controversy about it, then it would be much harder to explain why we should care about the Venusians at all... I do think that the interest can be justified on its own, but the existing controversy really is a big part of the motivation, and the rhetoric shows that people cared.}\AY{It’s your call. I agree the controversy is useful motivation, but quoting “myth” shifts the tone toward rhetoric and puts unnecessary emphasis on one author. It may be more effective to cite a broader range of papers on both sides. A longer list of papers, especially more recent ones, will be much more convincing.}
+ The trouble is that at each order we must add an ``energy-momentum tensor" term \(T^{\mu\nu(n)}\) (representing the energy-momentum of the interactions added at the previous order), but energy-momentum tensors are not uniquely defined. They may always be modified, without affecting their conservation, by adding identically conserved ``superpotential" terms and/or terms that vanish under the equations of motion. So the ``correct" terms -- those that secretly correspond to orders of the expansion of the EFE -- must somehow be selected out of a large class of possibilities. And in fact, using standard procedures to define \(T^{\mu\nu(n)}\) does give the answer we want. Already at quadratic order, the ``correct" \(T_{h}^{\mu\nu(2)}\) includes a superpotential term that would not be generated by those procedures.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{image.png}
+    \caption{Flow of the iterative bootstrapping procedure, emphasizing the missing step where the energy-momentum tensor may be modified. Defining this step is our goal in this paper. (Note: the step where we derive corrections to the Lagrangian will be explained later in the text.)}
+    \label{fig:enter-label}
+\end{figure}
+
+The existing literature does not directly overcome this problem. Instead, approaches like Feynman's own or that of Wald \cite{Wald} focus on how a symmetry equivalent to general covariance might be derived, which then singles out the Einstein-Hilbert action immediately. While conceptually superior, this direction is disappointing, in that it seems to require the Venusians to already recognize such a symmetry as a hypothesis. The Bootstrapping Claim would have it that no such thinking is needed. There is also Deser's \cite{Deser} version of the bootstrap, which gives the full (Palatini) theory in a single step, but relies on an otherwise unmotivated set of choices in writing the linear theory using auxiliary variables that will become the Christoffel symbols. This too requires ``non-Venusian" knowledge. There are also several other approaches to deriving general covariance from Spin-2 theory, such as Weinberg's derivation of the Equivalence Principle from IR graviton divergences \cite{Weinberg IR} and the Weinberg-Witten theorem \cite{WW} showing that a QFT with massless spin-2 states cannot have an observable energy-momentum tensor. These don't settle the Bootstrapping Claim because they are simply too different from it. In particular, they are part of the low-energy quantum theory of gravity, in contrast to our classical field theoretic arguments. \footnote{Although we must admit that Feynman's ``Venusians" are also quantum field theorists, and they use such reasoning in the steps leading to \eqref{lin}.} 
+
+Here, we present an explicit, constructive method to determine the energy-momentum terms \(T^{\mu\nu(n)}\) to be added at each order of the bootstrap. The considerations we use are maximally ``Venusian": we do not use the concepts of curved spacetime, or the related gauge symmetry, at all. We limit ourselves to terms with up to two derivatives, but we show that the terms found in this way are both necessary and sufficient for a completion of the linear theory. (Terms with more derivatives are indeed possible in GR, as expansions of higher-order curvature terms. This does not challenge the Bootstrapping Claim in any way.) At each order, we find a clearly delineated space of possibilities, and we show that the difference between any two such possibilities is equivalent to the result of a local field redefinition. The equivalence holds to all orders, as the consequences of these choices propagate up the bootstrap. Since field redefinitions are always possible, this level of uniqueness is the best that could be asked for.
+
+Our strategy is to focus on the requirement that the equation we are deriving be the Euler-Lagrange (EL) derivative of a Lagrangian density. This property is equivalent to the three Helmholtz conditions \cite{Helmholtz}. As we will show in detail, it turns out that one of these conditions limits the allowed equation-of-motion terms to those that correspond to field redefinitions, and another allows us to write a constructive formula for the superpotential terms that must appear. Thus, the Bootstrapping Claim is vindicated.
+
+ We need to mention two limitations of our work: the matter fields we consider may be scalars, vectors, or tensors of any rank, but we have not yet attempted to apply our method to spinors, with their complexities of tetrad and torsion. This also enables a further narrowing: to avoid some technical difficulties, we consider only matter fields \(\phi_i\) whose equation of motion (without gravity) \(E_i^{(0)}=\frac{\delta \mathcal{L}_M}{\delta \phi_i}\) are strictly second-order (as is typical for bosonic fields). That is, for each of the \(E_i^{(0)}\) and in any field configuration, the dependence on second derivatives \(H_{ij}^{\mu\nu}=\frac{\partial E_i^{(0)}}{\partial \phi_{j,\mu\nu}}\)\footnote{This object equals \(-\left(\frac{\partial^2\mathcal{L}_M}{\partial \phi_{i,\mu}\partial\phi_{j,\nu}}+(\mu\leftrightarrow\nu)\right)\)} must be nonzero in at least one component \(j,\mu,\nu\), and the same must hold for any nonzero linear combination \(\sum_i f_iH_{ij}^{\mu\nu}\). Note that we are \textit{not} requiring the much stronger (and more commonly used) condition that \(H_{ij}^{\mu\nu}\) be nondegenerate (equivalently, that \(\sum_{i} f_{\mu i}H_{ij}^{\mu\nu}\ne0\) for any nonzero set of vectors \(f_{\mu i}\)) so as to constrain all field modes, which famously isn't satisfied by gauge theories. We merely need \textit{some} dependence on second derivatives that can't be eliminated by linear combinations of the \(E_i^{(0)}\).
+
+% Stays here
+\textbf{The structure of this thesis is as follows:} In section 2, we describe the bootstrapping idea in detail, along with the difficulty due to the non-uniqueness of the energy-momentum tensor. We also briefly go over some of the other approaches to deriving GR from massless spin-2 theory. In section 3 we show how the Helmholtz conditions constrain the possible terms so that we do indeed get uniqueness, up to field redefinitions. In section 4  we put the results together to spell out the resulting step-by-step procedure for the GR bootstrap. In section 5 we suggest possible directions for future work.
+
+% Stays here
+\textbf{Notation and terminology:} We use ``mostly plus" metric signature.  We indicate symmetrization by \(O_{(\mu\nu)}=O_{\mu\nu}+O_{\nu\mu}\) and antisymmetrization by \(O_{[\mu\nu]}=O_{\mu\nu}-O_{\nu\mu}\), both without an implied factor \(\frac{1}{2}\).  The Riemann tensor is \(R_   {\ \mu\rho\nu}^\lambda=\Gamma_{\ \mu[\nu,\rho]}^\lambda-\Gamma_{\ \sigma[\nu}^\lambda \Gamma_{\ \rho]\mu}^\sigma\) and the Ricci tensor is \(R_{\mu\nu}=R_{\ \mu\lambda\nu}^\lambda\) (the ``MTW conventions"\cite{MTW}). All raising and lowering of indices uses the Minkowski metric. 
+
+We use commas and semicolons to indicate partial and covariant derivatives, respectively. We use the words ``scalar", ``vector", and ``tensor" for objects that transform appropriately under Lorentz transformations; for instance, \(g_{\mu\nu,\lambda}\) is a ``tensor" in this sense. To indicate that an object transforms properly under general coordinate transformations, we call it ``covariant" (we never use the terms ``covariant" and ``contravariant" to distinguish between upper and lower indices). We use a tilde to indicate a scalar, vector, or tensor that has been covariantized using the ``comma goes to semicolon" rule: internal occurrences of the metric are changed from \(\eta_{\mu\nu}\) to \(g_{\mu\nu}\), and partial derivatives are made covariant without changing their ordering. A ``scalar density" or ``tensor density" means a covariant scalar or tensor multiplied by the volume factor \(\sqrt{|g|}\). 
+
+We treat the EL derivative \(\delta\) as acting on functions of the fields at a point: 
+\begin{equation}
+\frac{\delta f}{\delta \phi}=\frac{\partial f}{\partial \phi}-{\left(\frac{\partial f}{\partial \phi_{,\mu}}\right)}_{,\mu}+{\left(\frac{\partial f}{\partial \phi_{,\mu\nu}}\right)}_{,\mu\nu}-\dots
+\end{equation}
+This avoids the need to mention the spacetime action integral. We regularly write ``Lagrangian" when we mean ``Lagrangian density". Taking a derivative \(\frac{\partial}{\partial h_{\mu\nu}}\) by a symmetric tensor really means \(\frac{1}{2}(\frac{\partial}{\partial h_{\mu\nu}}+\frac{\partial}{\partial h_{\nu\mu}})\), since these cannot be varied independently. 
+
+When not otherwise specified, equality between functions means they are identically equal; that is, equal for all field configurations, even when the equations of motion are not satisfied. 
+
+\section{Bootstrapping and Its Uniqueness Problem}
+
+\subsection{The Bootstrapping Paradigm}
+
+The conservation of energy and momentum plays a special role in the
+theory of gravity: it is required for the consistency of the theory. In some
+theories we can consider hypothetical scenarios where one of the
+equations of motion is violated, and calculate how the other fields will
+respond to that event. But in GR, a violation of energy or momentum conservation would not allow valid solutions for the gravitational field equation. 
+
+For instance, it is common for students to ask, ``if the Sun were to suddenly disappear, would Earth continue to feel its gravitational pull for 8 minutes, as the information travels?" The students correctly intuit that this is wrong; a Newtonian field without a source would violate the gravitational version of Gauss's law, which is part of the EFE. Yet there is no better prediction that can be made for this hypothetical scenario. The
+violation of energy conservation necessarily implies a violation of
+Einstein's equation as well.
+
+In the context of GR, this special status applies to the covariant, local
+conservation law \(\widetilde{T}_M^{\mu\nu}{}_{;\nu} = 0\).
+It follows from the Bianchi identity: Since \(G^{\mu\nu}{}_{;\nu} = 0\) as a mathematical identity, there is no metric that satisfies Einstein's equation if \(\widetilde{T}_M^{\mu\nu}{}_{;\nu}\) does not vanish.\AY{The phrasing is a bit confusing to me: the vanishing of the divergence of the Einstein tensor is, as you say, an identity. That object really vanishes. The divergence of the energy momentum tensor is zero only if the equations of motion for the matter fields are satisfied. It's not identically zero. In other words, the divergence of the energy momentum tensor is some expression involving the other dynamical fields in the problem. So what you'd get in this case is an extra constraint on the dynamical fields which will probably not be consistent.}\AM{I'm saying that if we are given an  matter configuration where \(\widetilde{T}_M^{\mu\nu}{}_{;\nu}\ne0\) (like the sun disappearing) and take that as the source, then we won't be able to find any metric that satisfies the EFE.} In our current context, similar logic applies about our equation \eqref{lin}: it is easy to check that \(W^{\mu\nu}{}_{,\nu} = 0\) identically, so the equation cannot be solved unless the RHS of the equation satisfies a conservation law (but now using non-covariant partial derivatives). This requirement is the ``engine" driving the bootstrap forward: at each order, new terms are needed for conservation, and hence for consistency.
+
+The tensor that appears on the RHS of \eqref{lin} is \(T_{M}^{\mu\nu}\) , the energy-momentum tensor of the matter theory. This tensor is derived from the matter Lagrangian \(\mathcal{L}_{M}\), using one of several well-known procedures. We will consider two of these: taking the functional derivative by an auxiliary metric, and Noether's ``canonical" procedure with Belinfante's ``improvement" term, symmetrized.\footnote{Although the purpose of adding the Belinfante term is to make the tensor symmetric, it does so only when the equations of motion are satisfied. We want to consider only terms that are inherently symmetric, since only they can appear as Euler-Lagrange derivatives by \(h_{\mu\nu}\). Therefore, we use an explicitly symmetrized version of the tensor. The change amounts to adding an antisymmetric term proportional to the equations of motion.} We will call these the ``Hilbert" and ``Symmetrized Belinfante" tensors respectively. (In the Supplemental Material we review these two procedures, and the relationship between them). We will assume the Venusians are using one of these two procedures to define a ``standard" energy-momentum tensor. We may write the chosen method as a linear operator \(\widehat{T}\), acting on a given Lagrangian:
+\begin{equation}
+    T^{\mu\nu}={\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L} \right\rbrack
+\end{equation}
+The procedures are designed to guarantee that \({\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L} \right\rbrack\) satisfies \(T^{\mu\nu}{}_{,\nu} = 0\), whenever the equations of motion derived from \( \mathcal{L}\) are satisfied. 
+
+Now we can see the problem that initiates the bootstrap: \(T_{M}^{\mu\nu}\) is defined as \({\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}_M \right\rbrack\), but the Lagrangian of the theory is not just \(\mathcal{L}_{M}\)! It is
+\begin{equation}
+\mathcal{L}_{lin}=\mathcal{L}_{h}^{(2)}+\mathcal{L}_{M}+\kappa h_{\mu\nu}T_M^{\mu\nu},
+\end{equation}
+where
+\begin{equation} \label{Lh2}
+\mathcal{L}_{h}^{(2)} = - \frac{1}{2}h^{\mu\nu,\rho}h_{\mu\nu,\rho} + h^{\mu\nu,\rho}h_{\mu\rho,\nu} + \frac{1}{2}h^\mu{}_\mu{}^{,\rho}h^\nu{}_{\nu,\rho} - h^\mu{}_\mu{}^{,\rho}h_\rho{}^\nu{}_{,\nu}
+\end{equation}
+is the kinetic Lagrangian of the spin-2 theory. This is what is needed to get the equation of motion
+\begin{equation}
+\frac{\delta}{\delta h_{\mu\nu}}\mathcal{L}_{lin}=W^{\mu\nu}+\kappa T_M^{\mu\nu},
+\end{equation}
+i.e., equation \eqref{lin}, and also to derive the direct effects of the \(h_{\mu\nu}\) field on matter. Thus the equations of motion that would be derived from \(\mathcal{L}_{M}\) alone are not satisfied. Instead, under the equations of motion derived from \(\mathcal{L}_{lin}\), the matter and gravitational fields interact and exchange energy. For example, a falling apple acquires kinetic energy from the gravitational potential, which does not appear in \(T_{M}^{\mu\nu}\). The conserved energy-momentum tensor is not \(T_{M}^{\mu\nu}\) but
+\begin{equation}
+{\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}_{lin} \right\rbrack = T_{M}^{\mu\nu} + {\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}_{h}^{(2)} \right\rbrack + \kappa{\widehat{T}}^{\mu\nu}\left\lbrack h_{\mu\nu}T_M^{\mu\nu} \right\rbrack.
+\end{equation}
+Thus equation \eqref{lin} will generally not be exactly solvable, since typical matter configurations will have \(T_{M\ ,\nu}^{\mu\nu} \neq 0\). \AY{Well, isn't it possible that the equations of motion are not derived from an action and that $T_M^mn$ includes all fields except 'h'?}\AM{I only used the Lagrangian here to find an expression for some energy-momentum that will be conserved. The fact that $T_M$ is not conserved doesn't rely on the Lagrangian, it's just that the conservation relies on the pure-matter EOMs which aren't satisfied once we have gravity.}
+
+For example, take the case of a real scalar field, with Lagrangian \(\mathcal{L}_{M}=-\frac{1}{2}\phi^{,\mu}\phi_{,\mu}-V(\phi)\).\AY{Did you define what $X^{,\mu}$ means?}\AM{In the "notation and terminology" I wrote that the comma is a partial derivative and that indices are raised and lowered using Minkowski metric.} The equation of motion without gravity is \(E_\phi^{(0)}=\phi^{,\mu}{}_\mu-V'(\phi)=0\). The matter energy-momentum tensor (derived by either of the two methods) is 
+\begin{equation}
+T_M^{\mu\nu}={\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}_M \right\rbrack=\phi^{,\mu} \phi^{,\nu}+\eta^{\mu\nu}\mathcal{L}_M
+\end{equation}
+and satisfies \(T_M^{\mu\nu}{}_{,\nu}=E_\phi^{(0)}\phi^{,\mu}\), which gives the conservation law when \(E_\phi^{(0)}=0\). But the equation of motion including linear gravity is
+\begin{equation}
+\frac{\delta}{\delta \phi}(\mathcal{L}_M+\kappa h_{\mu\nu}T_M^{\mu\nu})=E_\phi^{(0)}+\kappa h_{\mu\nu}\frac{\delta}{\delta \phi}T_M^{\mu\nu}=(1+\kappa h_{\ \mu}^\mu)E_\phi^{(0)}+2h_{\mu\nu}\phi^{,\mu\nu}=0.
+\end{equation}
+If the linear equation \eqref{lin} were to nevertheless hold exactly, it would amount to imposing the ``new conservation law" \(T_M^{\rho\sigma}{}_{,\sigma}=E_\phi^{(0)}\phi^{,\rho}=0\), \textit{in addition to} conservation of the full energy-momentum. Then we could multiply the scalar field equation by \(\phi^{,\rho}\), impose the new law, and get
+\begin{equation}
+2h_{\mu\nu}\phi^{,\mu\nu}\phi^{,\rho}=0.
+\end{equation}
+This is a very severe restriction. In particular, it says that whenever \(h_{\mu\nu}\) takes values that make it a non-invertible matrix, either all the first derivatives or all the second derivatives of \(\phi\) must equal zero. This set of equations will have few solutions, if any. 
+
+It might possibly be the case that for some choice of the matter theory, there is some way to add nonlinear terms to the equation such that the resulting system, including the ``new conservation law" of whatever appears on the RHS, does have some reasonable space of solutions (Wald\cite{Wald} also raises doubts about this)\footnote{It is tempting to try to rule out this possibility by arguing that a new conservation law would imply a new vectorial symmetry, which is forbidden by the Coleman-Mandula Theorem \cite{Coleman-Mandula}. But this would be incorrect. The ``new conservation law" in our case would not necessarily imply any new symmetry, since the conserved quantity would be trivial: under the equations of motion it would equal \(W^{\mu\nu}\), which is identically conserved. Indeed, the same is true for the ``full energy-momentum tensor" in the version of the EFE that is the the output of the Bootstrap - under the full equation of motion (equivalent to Einstein's equation), it too equals the identically conserved \(W^{\mu\nu}\). The result is that the total energy-momentum vector is a spatial boundary term; the energy component equals the well-known ADM mass \cite{ADM}}. But even if so, such a theory would not be physically satisfactory for our Venusians. We are assuming that they have derived the linear equation in contact with experiment. This implies that it is approximately correct, i.e., that the space of solutions to that equation approximates the space of solutions for the dynamics of the full theory, under some reasonable ``smallness" conditions. In particular, we see in the linear theory that the space of allowed matter configurations (of moderate energy densities) should be essentially the same as those allowed by the \(\mathcal{L}_M\) theory, with (locally) small deformations due to the influence of gravity. We want to complete the equation in a way that respects this property. The appearance of a new, independent conservation law would instead rule out some significant subspace; it would yield a completely different theory rather than a correction. 
+
+Thus, the Venusians conclude that the exact theory must be found by completing the equation in such a way that the RHS is conserved \textit{due to energy-momentum conservation}, just as holds approximately in the linear theory. That is: there should be a total Lagrangian \(\mathcal{L_{tot}}\) and a ``total energy-momentum tensor" \(T_{tot}^{\mu\nu}\) such that 
+\begin{equation}
+T_{tot}^{\mu\nu}={\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}_{tot} \right\rbrack+T_{triv}^{\mu\nu},
+\end{equation}
+(where \(T_{triv}^{\mu\nu}\) represents possible trivially conserved terms, as we will discuss shortly), while the equation of motion is
+\begin{equation}
+\frac{\delta}{\delta h_{\mu\nu}}\mathcal{L}_{tot}=W^{\mu\nu}+\kappa T_{tot}^{\mu\nu},
+\end{equation}
+so that \(-\kappa T_{tot}^{\mu\nu}\) is the RHS of the wave equation.
+
+\({\widehat{T}}^{\mu\nu}\) does not change the order of any term (in powers of \(h_{\mu\nu}\)), while the EL derivative decreases the order by one. Since the above equations must be satisfied as algebraic identities, they must hold separately for each order \(n\). So we have
+\begin{equation}
+T^{\mu\nu(n)}={\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}^{(n)} \right\rbrack+T_{triv}^{\mu\nu(n)}
+\end{equation}
+and
+\begin{equation}
+\frac{\delta}{\delta h_{\mu\nu}}\mathcal{L}^{(n+1)}=\delta_1^n W^{\mu\nu}+\kappa T^{\mu\nu(n)},
+\end{equation}
+
+If a sequence of solutions for \(T^{\mu\nu(n)}\) can be found for all \(n\), then the full equation will clearly be self-consistent. Valid solutions will be field configurations such that the infinite sums on the RHS -- power series in \(\kappa h_{\mu\nu}\) --  converge to quantities satisfying the equation, and similarly for the full equations of motion for the matter fields (as derived from the full Lagrangian, so that they too are power series in \(\kappa h_{\mu\nu}\)). The RHS will be conserved both because it is the energy-momentum tensor of the full theory, and because the equation itself sets it to equal the identically conserved LHS\footnote{By Noether's Second Theorem, this redundancy in the set of equations of motion indicates that the theory has a gauge symmetry. That is the starting point for Wald's uniqueness proof\cite{Wald}, which proceeds by searching for consistent gauge symmetries. 
+
+It is a nice fact that the correct gauge theory, diffeomorphism invariance, can be thought of as ``gauging" the translation invariance responsible for energy-momentum conservation: it generalizes from shifting by a constant translation vector \(\xi^\mu\) to shifting by a vector field \(\xi^\mu(x)\), using Lie derivatives. This parallels what happens in standard gauge theory, where charge conservation is a redundant equation and the symmetry responsible for it is gauged.}.
+
+We Earthlings know that the full Einstein field equation exists as a self-consistent equation, whose linear and zeroth-order parts - if we expand the metric as \(g_{\mu\nu}=\eta_{\mu\nu}+2\kappa h_{\mu\nu}\) - are proportional to the linear equation \eqref{lin}. This implies that if we expand the equation in powers of \(h_{\mu\nu}\), moving all terms other than \(W^{\mu\nu}\) to the RHS, we will get a completion of the above form. The Bootstrap Claim is that this completion is in fact the only possibility, in a way that is clear even to Venusian scientists.
+
+In a bit more detail: the Euler-Lagrange equation derived from the Einstein-Hilbert Lagrangian \(\sqrt{|g|}(\frac{1}{2\kappa^2}R+\widetilde{\mathcal{L}}_M)\), treating the metric as the variable, is \begin{equation}
+    \sqrt{|g|}\left(-\frac{1}{2\kappa^2}G^{\mu\nu}+\frac{1}{2}\widetilde{T}_M^{\mu\nu}\right)=0.
+\end{equation} The first-order part of \(\sqrt{|g|}G^{\mu\nu}\) is \(G^{\mu\nu(1)}=-\kappa W^{\mu\nu}\), and the zeroth-order part of \(\sqrt{|g|}\widetilde{T}_M^{\mu\nu}\) is \(T_M^{\mu\nu}\), so \eqref{lin} is the same as the lowest-order parts of the EFE, up to a factor \(2\kappa\). The factor is there because because the Euler-Lagrange derivative is taken by \(h_{\mu\nu}\) rather than \(g_{\mu\nu}\), with \(\delta h_{\mu\nu}=\frac{1}{2\kappa}\delta g_{\mu\nu}\). The same holds to all orders. So what we want to show, according to the Bootstrap Claim, is that at each order \(n>1\) the solution for \(T^{\mu\nu(n)}\) is: 
+\begin{equation}
+     T^{\mu\nu(n)}=\kappa^{-2}\left(\sqrt{|g|}G^{\mu\nu}\right)^{(n)} +\left(\sqrt{|g|}\widetilde{T}_M^{\mu\nu}\right)^{(n)}.
+\end{equation}
+The ``gravitational field energy" terms in \(\sqrt{|g|}G^{\mu\nu}\) will come from applying the bootstrap to \(\mathcal{L}_h^{(2)}\), while the ``matter-gravity interaction energy" terms in \(\sqrt{|g|}\widetilde{T}_M^{\mu\nu}\) will come from applying the bootstrap to \(\mathcal{L}_M\).\footnote{Feynman omitted the possibility of such interaction energy terms in his Lectures. He avoided them by working in an example -- the free particle with Lagrangian \(\frac{m}{2}\dot{x}^\mu\dot{x}_\mu\), parametrized by proper time -- where they ``luckily" do not appear.}
+
+How should the Venusians go about solving for the \(T^{\mu\nu(n)}\)? If we ignored the possibility of trivially conserved terms, then we would have a straightforward, iterative bootstrap procedure: beginning at \(n = 0\) with \(\mathcal{L}^{(0)} = \mathcal{L}_M\) , we use \(\widehat{T}^{\mu\nu}\) to derive \(T^{\mu\nu(n)}\) (with \(T^{\mu\nu(0)} = T_M^{\mu\nu}\) ). Then we multiply by \(\kappa\) and reverse the EL derivative to derive \(\mathcal{L}^{(n+1)}\) (with \(\mathcal{L}^{(1)} = \kappa h_{\mu\nu}T_M^{\mu\nu}\)). This is repeated to all orders, along with adding \(W^{\mu\nu}\) at order $n=1$ to serve as the LHS of the wave equation. 
+
+This seems to be the folk idea of how the bootstrap should work; for instance, Padmanabhan\cite{Padmanabhan} seems to have this concept as the focus of his complaints. It has two major shortcomings: ignoring the possibility of adding trivially conserved terms, and the assumption that we can always simply ``reverse the EL derivative" to get a Lagrangian from a field equation. The central point of this paper is that these problems solve one another. The requirement of having a Lagrangian is what tells us which trivially conserved terms must be added.
+
+Before continuing, we should point out that the EFE is not in fact completely unique. In reality, even assuming general covariance, there may well be physical corrections involving higher powers of the curvature and its derivatives. This must be determined by (extremely difficult) experimentation. So we must set a more modest goal for our Venusians: they are to find all terms in the field equations containing up to two derivatives (i.e., either one second derivative of a field, or a product of two first derivatives). Computing $\widehat{T}^{\mu\nu}$ from a Lagrangian, or an EL derivative, both do not change the number of derivatives in a given term. The same applies to all the procedures we will discuss in this paper. Therefore, at no point in the bootstrap will there ever be a need to add terms with more than two derivatives - they will never be helpful in resolving any obstacles encountered. So the uniqueness claim is that for any full, consistent completion of the linear theory, we can select from the Lagrangian and the field equation only those terms with up to two derivatives, and they will uniquely give the EFE (up to field redefinitions). 
+
+Wald\cite{Wald} proves the stronger claim, that any completion of the linear theory must be generally covariant. But this is impossible for our Venusians, who never use the concept of general covariance at all. They simply observe that the consistency requirements only ever generate terms with up to two derivatives, and treat higher-derivative terms as possible but unnecessary. Of course, they too are aware that terms with many derivatives only become relevant at very high energies.
+ 
+\subsection{Non-uniqueness of the Energy-Momentum Tensor}
+It turns out that the above ``folk" procedure, if it worked, would actually \textit{falsify} the Bootstrapping Claim. Already at the first nonlinear order, the suggested ``gravitational self-energy" \({\widehat{T}}^{\mu\nu}\left\lbrack \mathcal{L}_{h}^{(2)} \right\rbrack\) (whether defined by the Hilbert procedure or the symmetrized Belinfante procedure) does not equal the desired \(\kappa^{-2}\left(\sqrt{|g|}G^{\mu\nu}\right)^{(2)}\). Rather, they differ by a trivially conserved term.
+
+The possibility of such a term is not surprising: non-uniqueness is a general property of energy-momentum tensors. They may be freely changed by adding any tensor whose conservation is trivial, in one of two ways: either it is conserved as an identity, or it is a tensor that equals zero under the equations of motion (rather than merely being conserved). This gives us two classes of ambiguity that must be resolved, at each order, when choosing the terms to add to the equation. Let's examine these two classes in greater detail.
+
+The identically conserved tensors \(\Delta^{\mu\nu}\) are those that satisfy \(\Delta^{\mu\nu}{}_{,\nu}=0\)
+regardless of the field configuration. Any such symmetric and identically conserved tensor may be written in the form of a double divergence:
+\begin{equation}\Delta^{\mu\nu}=\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma},\end{equation}
+where the ``superpotential" \(\Psi^{\mu\nu\rho\sigma}\) is a function of the fields at the same point (but not derivatives, since we have limited ourselves to \(\Delta^{\mu\nu}\) with up to two derivatives), and has the following index symmetries\footnote{In the literature, e.g., in \cite{Wald90}, it is more common to define \(\Delta^{\mu\nu}=V^{\mu\rho\sigma\nu}{}_{,\rho\sigma}\) where the symmetries are \(V^{\mu\rho\sigma\nu}=V^{\sigma\nu\mu\rho}=-V^{\rho\mu\sigma\nu}=-V^{\mu\rho\nu\sigma}\). But we can convert this to the form we want by simply setting \(\Psi^{\mu\nu\rho\sigma}=\frac{1}{2}V^{\mu(\rho\sigma)\nu}\). See the Supplemental Material section on nonminimal couplings for details about this conversion.}: it is symmetric under exchange of \((\mu,\nu)\) and under exchange of \((\rho,\sigma)\), and it satisfies a three-way antisymmetry condition
+\begin{equation}\label{3antiPsi}
+     \Psi^{\mu\nu\rho\sigma}+ \Psi^{\mu\rho\nu\sigma}+ \Psi^{\mu\sigma\rho\nu}=0.
+\end{equation}
+The latter condition ensures that \(\Delta^{\mu\nu}{}_{,\nu}=\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma\nu}=0\), by the symmetry of partial derivatives. For this reason, we will refer to such \(\Delta^{\mu\nu}\) as ``superpotential terms". 
+
+For example, for a scalar field \(\phi\), one identically conserved tensor is 
+\begin{equation}
+    \Delta^{\mu\nu}=\phi^{,\mu\nu}-\eta^{\mu\nu}\phi^{,\rho}{}_\rho
+\end{equation}
+which can be written as the double divergence of the superpotential
+\begin{equation}
+    \Psi^{\mu\nu\rho\sigma}=\frac{\phi}{2}\left(\eta^{\mu\rho}\eta^{\nu\sigma}+\eta^{\mu\sigma}\eta^{\nu\rho}-2\eta^{\mu\nu}\eta^{\rho\sigma}\right)
+\end{equation}
+The fact that this representation is always possible was proved by Wald \cite{Wald90}, as part of a field-theory extension of the Poincar\'e Lemma. In the Supplemental Material we give an explicit demonstration for the cases we are considering (i.e., where \(\Delta^{\mu\nu}\) only contains up to two field derivatives).
+
+Since the condition of being identically conserved is a matter of algebraic equality, it must hold separately for each order in \(h_{\mu\nu}\). So at each order in our bootstrap procedure we consider modifying \(T^{\mu\nu(n)}\) by adding a superpotential term \(\Delta^{\mu\nu(n)}\). The exception is \(n=0\): We will not considered matter-only superpotential terms, that is, modifications to \(T_M^{\mu\nu}\). Such ``improvement terms" do exist, but they represent (physical, measurable) changes to the original linear equation, rather than any non-uniqueness in completions of it. We may hope that the Venusians will be able to constrain such terms by experiment, since their affects are visible at lowest order in \(h_{\mu\nu}\). In the  Supplemental Materials that these symmetric, identically conserved modifications to \(T_M^{\mu\nu}\) are in one-to-one correspondence with the possible (covariant) non-minimal couplings between the matter and the spacetime curvature. 
+
+The second class of trivially conserved terms are equation-of-motion (EOM) terms: tensors \(f^{\mu\nu}\) that vanish (rather than merely being conserved) when the equations of motion are satisfied, i.e. when all of the quantities \(E_h^{\mu\nu}=\frac{\delta\mathcal{L}_{tot}}{\delta h_{\mu\nu}}\) and \(E_{\phi_i}=\frac{\delta\mathcal{L}_{tot}}{\delta \phi_i}\) (for each of the matter fields \(\{\phi_i\}\)) vanish. Any such (differentiable) function can be written as a sum of terms, each proportional to one of the EOMs:\AM{This still needs to be proven. Should probably be another Supplemental section.}
+%\footnote{Proof: We are discussing a tensor \(f^{\mu\nu}(x)\) that is a function of the gravitational and matter fields at \(x\), and their derivatives up to order 2. This is a set of \(N=\left(F+\frac{d(d+1)}{2}\right)\left(1+d+\frac{d(d+1)}{2}\right)\) real numbers, where \(F\) is the number of matter fields and \(d\) is the spacetime dimension. The \(E_{\phi_i}\) and \(E_h^{\mu\nu}\) are also functions of these variables, and there is no functional relationship between the variables. So we can just assume we are working in \(\mathbb{R}^N\). 
+
+% Suppose that a differentiable function \(f\) on \(\mathbb{R}^N\) vanishes whenever all of a set of \(M<N\) functions \(\{g_i\}\) vanishes, and suppose that the gradients \(\nabla g_i\) are linearly independent vectors everywhere on the solution locus (where the \(g_i=0\)). Then we can perform a diffeomorphism on the space such that the \(\{g_i\}\) become coordinates \(1\dots M\) (at least in a neighborhood of the solution locus). The linear independence of the gradients ensures that the Jacobian matrix of the transformation is nondegenerate. Then in terms of these coordinates, \(f\) near a point \(p^\mu \) on the solution locus can be Taylor expanded as \(f\approx 0+f_\mu (x^\mu-p^\mu)+O({(x^\mu-p^\mu)}^2)\), where only the first \(M\) components of \(f_\mu\) may be nonzero, and where the first \(M\) components of \(p^\mu\) are zero. Now we may write \(f\) as a sum of \(M\) functions \(f_i\) such that on the solution locus, each of them equals one of the \(M\) nonzero terms \(f_\mu x^{\mu}\) (no sum). Away from the solution locus, the division into \(\sum_if_i\) is partially arbitrary, except that we require each \(f_i\) to vanish wherever the corresponding \(g_i\) does. Then for each such \(f_i\), the ratio \(h_i=\frac{f_i}{g_i}\) has a well-defined limit everywhere, equaling the corresponding value \(f_\mu\) on the solution locus. Thus we can write \(f=\sum_ih_ig_i\) as desired. 
+
+% Now we need to confirm that in our case, the \(M=F+\frac{d(d+1)}{2}\) equations of motion satisfy the condition of linearly independent gradients. }  
+\begin{equation}
+f^{\mu\nu}=X_h^{\mu\nu}{}_{\rho\sigma}E_h^{\rho\sigma}+\sum_iX_{\phi_i}^{\mu\nu}E_{\phi_i}
+\end{equation}
+where \(X_h^{\mu\nu}{}_{\rho\sigma}\) and the \(X_{\phi_i}^{\mu\nu}\) are functions of the fields at the same point (but not their derivatives, since the equations of motion each already contain two derivatives). Each of these functions may be expanded in powers of \(h_{\mu\nu}\), with each order (such as \(X_{\phi_i}^{\mu\nu(n)}E_{\phi_i}\)) treated as an independent possible contribution. The equations of motion themselves are also power series in  \(h_{\mu\nu}\), so altogether, the order-\(n\) part of \(X_{\phi_i}^{\mu\nu}E_{\phi_i}\) can be expanded as 
+\begin{equation}
+\sum_{m=0}^nX_{\phi_i}^{\mu\nu(m)}E_{\phi_i}^{(n-m)} .
+\end{equation}
+Within the bootstrap procedure, this means that at order \(n\) we have the freedom to add to \(T^{\mu\nu(n)}\) a term \(X_{\phi_i}^{\mu\nu(n)}E_{\phi_i}^{(0)}\), which will then require us to also add the terms \(X_{\phi_i}^{\mu\nu(n)}E_{\phi_i}^{(k)}\), each at order \(n+k\) of the construction. The same applies to \(E_h^{\mu\nu}\), where we have the lowest-order part \(E_h^{\mu\nu(0)}=\kappa T_M^{\mu\nu}\).
+
+Adding EOM terms to our field equation has no direct physical effect, since by definition these terms equal zero on physical configurations\footnote{Caveat: adding to our equation \(E_h^{\mu\nu}\) an EOM term proportional to \(E_h^{\mu\nu}\) itself means that we write \( E_h^{'\mu\nu}=E_h^{\mu\nu}+\kappa X_h^{\mu\nu}{}_{\rho\sigma}E_h^{'\rho\sigma}\), where the primed equation is the modified one. So the closed-form expression for \(E_h^{'\mu\nu}\) is actually \(\left(\delta^\mu_\rho\delta^\nu_\sigma-\kappa X_h^{\mu\nu}{}_{\rho\sigma}\right)^{-1}E_h^{'\rho\sigma}\), which will be singular on some configurations. Thus some solutions to the unmodified equation may be invalidated by such singularities, depending on the limiting behavior of the expression near those points. But solutions to the new equation will always satisfy the old one as well. And at any rate, if \(X_h^{\mu\nu}{}_{\rho\sigma}\) is proportional to a power of \(h_{\mu\nu}\) then such singularities will only appear at large values of \(h_{\mu\nu}\), where the power series we are working with becomes useless anyway.}. Nevertheless, it is necessary to treat such terms carefully because they change the algebraic form of the equation. This affects the question of whether this expression is the Euler-Lagrange derivative of some Lagrangian, and the form of the Lagrangian if there is one - which can have physical effects by changing the EOMs for the matter fields. And within the context of the Bootstrap, the terms added at a given order will indeed change the contributions that are generated at higher orders.
+
+Since adding an EOM term (unlike a superpotential term) is not a measurable change, the Venusians don't have an obvious way to rule out such terms even at the linear level. Therefore, our analysis will allow the coefficient functions \(X_{\phi_i}^{\mu\nu}\) to be of any order in \(h_{\mu\nu}\), including zero.
+
+One important example of such a change is the freedom to change the matter energy-momentum tensor \(T_M\) by switching between the version defined by the Hilbert procedure, 
+\(T_{H}^{\mu\nu}\left\lbrack \mathcal{L} \right\rbrack \equiv 2\left. \ \frac{\delta(\sqrt{|g|}\widetilde{\mathcal{L}})}{\delta g_{\mu\nu}} \right|_{g_{\mu\nu} = \eta_{\mu\nu}}\) where \(\widetilde{\mathcal{L}}\) is the covariantized version of \(\mathcal{L}\), and the tensor derived from Noether's theorem with Belinfante's ``improvement" to make it symmetric. As is well-known \cite{Rosenfeld}, the difference between these two tensors is proportional to the equations of motion (for completeness, we include a derivation of this  fact in the Supplemental Material). Thus, changing which tensor appears in the linear equation \eqref{lin} amounts to adding terms of the form \( X^{\mu\nu(0)}_i E_{\phi_i}^{(0)}\), one such term for each of the fundamental matter fields. 
+
+One of Padmanabhan's[] complaints about the Bootstrapping idea is that the Hilbert energy-momentum tensor, appearing as the source in the Einstein Field Equation, is itself defined using geometric tools and not properly Venusian. That's why we have made sure to emphasize that the Venusians can just as well use the Symmetrized Belinfante tensor. The only effect this will have amounts to adding an EOM term to the linear equation \eqref{lin}. Our results will show that whenever such terms may be added, they are equivalent to field redefinitions and hence consistent with the Bootstrapping Claim. 
+
+On the other hand, we will not consider EOM terms proportional to \(E_h^{\mu\nu}\) with coefficients \(X_h^{\mu\nu}{}_{\rho\sigma}{}^{(0)}\) depending only on the matter fields. Adding such terms to \(E_h^{\mu\nu}\) itself would amount to \textit{multiplying} the wave equation by a function, even at the linear level, rather than adding a correction to complete it. This is simply not the Venusians' goal\footnote{Although such a multiplication would also be physically hard to detect, and might offer alternatives relevant for deriving the theory from a Lagrangian. It would be preferable if we had a good argument to rule this out.}.  
+
+\section{Deriving Uniqueness From the Helmholtz Conditions}
+
+\subsection{The Helmholtz Conditions}
+The problem of determining whether a given equation of motion is derived from a Lagrangian is an old and well-studied topic in mathematical physics, called ``the inverse problem of the calculus of variations". Helmholtz \cite{Helmholtz} formulated three conditions that will be satisfied by any function \(E\)
+that is the EL derivative of a Lagrangian that depends on up to first derivatives. For the case of a symmetric tensor field, they are:
+ \begin{equation}\label{H1}\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}=\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu,\gamma\delta}}\end{equation}
+ 
+\begin{equation}\label{H2}{\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}-\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}\right)}_{,\gamma}=2\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu}}\right)\end{equation}
+
+\begin{equation}\label{H3}
+ \frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}+\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}=2{\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}\right)}_{,\delta}.\end{equation}
+In the Supplemental Material we give a derivation of these conditions, following Nigam and Banerjee \cite{Nigam-Banerjee}.
+
+We should note that in our context, the first condition \eqref{H1} is actually redundant. The third condition \eqref{H3} shows that \({\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}\right)}_{,\delta}\) is symmetric under the exchange \((\mu\nu\leftrightarrow\alpha\beta)\). Then
+\begin{equation}
+\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}-\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu,\gamma\delta}}\right)_{,\delta}=0,
+\end{equation}
+i.e., the rank-six tensor in brackets, which is symmetric in \((\gamma,\delta)\), is identically conserved in the index \(\delta\). But when \(E^{\mu\nu}\) is limited to two derivatives, that tensor must depend only on fields without derivatives. This makes identical conservation impossible, by the same reasoning that forces an identically conserved symmetric rank-two tensor to be the double divergence of a superpotential (see the derivation of this in the Supplemental Material). So the tensor must be zero, meaning that \eqref{H1} is satisfied. Therefore, only the latter two Helmholtz conditions will provide constraints for our bootstrap.
+
+Whenever \(E^{\mu\nu}\) is indeed an EL derivative, and it is polynomial in \(h_{\mu\nu}\), it is easy to find the corresponding Lagrangian. We can take advantage of the following identity: for any homogeneous Lagrangian term \(\mathcal{L}^{(n)}\) where \(n\) is the order in powers of \(h_{\mu\nu}\), there holds
+\begin{equation}
+\intop d^dx\ h_{\alpha\beta}(x)E^{\alpha\beta(n-1)}(x)=n\mathcal{S}^{(n)},
+\end{equation}
+where \(E^{\alpha\beta(n-1)}=\frac{\delta\mathcal{L}^{(n)}}{\delta h_{\alpha\beta}}\) is the EL derivative, \(\mathcal{S}^{(n)}=\intop d^dx\ \mathcal{L}^{(n)}(x)\) is the action, and \(d\) is the spacetime dimension. To be precise, this holds for all configurations where \(h_{\mu\nu}(x)\) goes to zero sufficiently fast at infinity; the conditions are the same as those we set for \(\delta h_{\mu\nu}(x)\) when taking variations to derive the EL equation. 
+
+To show this identity, substitute \(h_{\mu\nu}=\lambda h'_{\mu\nu}\) into the Lagrangian and compute the \(\lambda\) derivative of the action. The chain rule gives:
+\begin{equation}
+\frac{d}{d\lambda}\intop d^dx\ \mathcal{L}^{(n)}(x)=\intop d^dx\ \frac{\delta\mathcal{L}^{(n)}}{\delta h_{\alpha\beta}}(x)\frac{dh_{\alpha\beta}(x)}{d\lambda}=\intop d^dx\ E^{\alpha\beta(n-1)}(x)h'_{\alpha\beta}(x).
+\end{equation}
+But we can also use the homogeneity to note that \(\lambda\) will always appear to the power of \(n\), so we can pull it out of the integral and get 
+\begin{equation}
+\frac{d}{d\lambda}\mathcal{S}^{(n)}[h_{\mu\nu}]=\frac{d}{d\lambda}\lambda^n\mathcal{S}^{(n)}[h'_{\mu\nu}]=n\lambda^{(n-1)}\mathcal{S}^{(n)}[h'_{\mu\nu}].
+\end{equation}
+Then equating these two expressions and setting \(\lambda=1\) gives us the claimed equality.
+
+Thus, we see that whenever a homogeneous \(E^{\alpha\beta(n-1)}\) is in fact an EL equation, we may set \(\frac{1}{n}h_{\mu\nu}E^{\mu\nu(n-1)}\) as the Lagrangian. Since this gives us the correct action (when boundary conditions are satisfied), we know that it will give back \(E^{\mu\nu(n-1)}\) as the EL equation. 
+
+The only obstacle is that this expression will generally include second derivatives of the fields. The Helmholtz conditions assume that the Lagrangian depends only on fields and their first derivatives. But this is not a serious problem for us: since we are limited to two derivatives in total, any second derivative \(\phi_{,\mu\nu}\) must be multiplied by some function \(f^{\mu\nu}\) of fields without derivatives. Therefore we can add a boundary term to eliminate the second derivative:
+\begin{equation}
+f^{\mu\nu}\phi_{,\mu\nu}=-f^{\mu\nu}{}_{,\nu}\phi_{,\mu}+{(f^{\mu\nu}\phi_{,\mu})}_{,\nu}.
+\end{equation}
+Adding a boundary term has no effect on the EL equation, so doing this for each second-derivative term gives the correct Lagrangian \(\mathcal{L}^{(n)}\). 
+\subsection{Uniqueness of the Superpotential}
+Consider the following setting: we are given a symmetric tensor \(M^{\mu\nu}\), depending on \(h_{\mu\nu}\)  and possibly other fields \(\{\phi_i\}\).  \(M^{\mu\nu}\) is of order \(n\ge1\) in \(h_{\mu\nu}\), and contains up to two derivatives. We wish to add to it an identically conserved tensor \(\Delta^{\mu\nu}\) such that \begin{equation} \frac{\delta\mathcal{L}}{\delta h_{\mu\nu}}=M^{\mu\nu}+\Delta^{\mu\nu}\end{equation}
+for some scalar \(\mathcal{L}\). How can we tell whether this is possible, and find the appropriate \(\Delta^{\mu\nu}\)?
+
+First of all, since  \(M^{\mu\nu}\) is of a fixed order \(n\) in \(h_{\mu\nu}\), the Lagrangian we seek should also be of fixed order \(n+1\), and \(\Delta^{\mu\nu}\) will in turn be of order \(n\).  Also, as we have mentioned, identical conservation implies \(\Delta^{\mu\nu}=\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}\). So our goal is to look for an appropriate superpotential. This is easier than searching for \(\Delta^{\mu\nu}\) directly,  because  \(\Psi^{\mu\nu\rho\sigma}\) must depend on the fields without derivatives. 
+
+We may now substitute \(E^{\mu\nu}=M^{\mu\nu}+\Delta^{\mu\nu}\) in the Helmholtz conditions, to see how the condition of being an E-L derivative constrains  \(T^{\mu\nu}\) and \(\Psi^{\mu\nu\rho\sigma}\). It turns out that the third Helmholtz condition fully fixes the superpotential, as we now show.
+
+Expanding the \(\rho,\sigma\) derivatives of \(\Psi^{\mu\nu\rho\sigma}\) in terms of the fields, we have
+\begin{equation}\begin{split}\label{Psiexp}\Delta^{\mu\nu}=\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}&={\left(\frac{\partial \Psi^{\mu\nu\rho\sigma}}{\partial h_{\kappa\lambda}}h_{\kappa\lambda,\rho}+\sum_i \frac{\partial \Psi^{\mu\nu\rho\sigma}}{\partial \phi_i}\phi_{i,\rho}\right)}_{,\sigma}\\&=\frac{\partial^2 \Psi^{\mu\nu\rho\sigma}}{\partial h_{\varphi\chi}\partial h_{\kappa\lambda}}h_{\varphi\chi,\sigma}h_{\kappa\lambda,\rho}+2\sum_i\frac{\partial^2 \Psi^{\mu\nu\rho\sigma}}{\partial \phi_i\partial h_{\kappa\lambda}}\phi_{i,\sigma}h_{\kappa\lambda,\rho}+\frac{\partial \Psi^{\mu\nu\rho\sigma}}{\partial h_{\kappa\lambda}}h_{\kappa\lambda,\rho\sigma}\\
+&+\sum_{i,j}\frac{\partial^2 \Psi^{\mu\nu\rho\sigma}}{\partial \phi_j\partial \phi_i}\phi_{j,\sigma}\phi_{i,\rho}+\sum_i\frac{\partial \Psi^{\mu\nu\rho\sigma}}{\partial \phi_i} \phi_{i,\rho\sigma}
+.\end{split}\end{equation}
+
+We have used the assumed symmetry of  \(\Psi^{\mu\nu\rho\sigma}\) in the last two indices to combine like terms. The Helmoltz condition most relevant here is the third one, \eqref{H3}. To impose this, we need the partial derivatives \(\frac{\partial\Delta^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}\) and \(\frac{\partial\Delta^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}\). For \(\frac{\partial\Delta^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}\), \eqref{Psiexp} yields
+\begin{equation}\label{dDelddh}
+ \frac{\partial \Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}}{\partial h_{\alpha\beta,\gamma}}=2\frac{\partial^2 \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\varphi\chi}\partial h_{\alpha\beta}}h_{\varphi\chi,\sigma}+2\sum_i\frac{\partial^2 \Psi^{\mu\nu\gamma\sigma}}{\partial \phi_i\partial h_{\alpha\beta}}\phi_{i,\sigma}=2{\left(\frac{\partial \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\sigma}  
+\end{equation}
+(where we have used the index symmetry once again); and for \(\frac{\partial\Delta^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}\), we have 
+\begin{equation}
+\frac{\partial  \Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}}{\partial h_{\alpha\beta,\gamma\delta}}=\frac{\partial \Psi^{\mu\nu\gamma\delta}}{\partial h_{\alpha\beta}}. 
+\end{equation}
+
+Now we can impose \eqref{H3}:
+\begin{equation}\label{H3forDel}\begin{split}
+ \frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}+2{\left(\frac{\partial \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\sigma}&+\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}+2{\left(\frac{\partial \Psi^{\alpha\beta\gamma\sigma}}{\partial h_{\mu\nu}}\right)}_{,\sigma}=2{\left(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}+\frac{\partial \Psi^{\mu\nu\gamma\delta}}{\partial h_{\alpha\beta}}\right)}_{,\delta}\\ \Rightarrow{\left(\frac{\partial \Psi^{\alpha\beta\gamma\sigma}}{\partial h_{\mu\nu}}\right)}_{,\sigma}&={\left(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma\delta}}\right)}_{,\delta}-\frac{1}{2}\left(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}+\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}\right)
+ \\ \Rightarrow{\left(\frac{\partial \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\sigma}&={\left(\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma\delta}}\right)}_{,\delta}-\frac{1}{2}\left(\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}+\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}\right).\end{split}\end{equation}
+In the second line we canceled two terms that are equal up to dummy indices, and in the last line we simply relabeled the free indices \(\alpha\beta\leftrightarrow\mu\nu\) for later convenience.
+
+Now since we are limited to two derivatives of \(h_{\mu\nu}\), we know that \(\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma\delta}}\), like \(\Psi^{\mu\nu\rho\sigma}\), cannot depend on field derivatives. Therefore, the first first derivatives of \(h_{\mu\nu}\) can appear at most to linear power in \({\left(\frac{\partial \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\sigma}\) and in \({\left(\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma\delta}}\right)}_{,\delta}\) are at most linear in . The same is true about \(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}\), since \(M^{\mu\nu}\) itself is at most quadratic in first derivatives. We can extract the part of the equation proportional to \(h_{\kappa\lambda,\tau}\) :
+\begin{equation}\label{1stdivpart}
+    \left(\frac{\partial^2 \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\kappa\lambda}\partial h_{\alpha\beta}}\delta_\sigma^\tau-\frac{\partial^2 M^{\alpha\beta}}{\partial h_{\kappa\lambda}\partial h_{\mu\nu,\gamma\delta}}\delta_\delta^\tau+\frac{1}{2}\frac{\partial^2 M^{\alpha\beta}}{\partial h_{\kappa\lambda,\tau}\partial h_{\mu\nu,\gamma}}+\frac{1}{2}\frac{\partial^2 M^{\mu\nu}}{\partial h_{\kappa\lambda,\tau}\partial h_{\alpha\beta,\gamma}}\right)h_{\kappa\lambda,\tau}=0.
+\end{equation}
+Since the terms in parentheses are independent of \(h_{\kappa\lambda,\tau}\), the only way this equation can hold identically is if those terms sum to zero. So we get (relabeling \(\gamma\rightarrow\rho,\tau\rightarrow\sigma\))
+\begin{equation} \label{ddPsidhdh}
+    \frac{\partial^2 \Psi^{\mu\nu\rho\sigma}}{\partial h_{\kappa\lambda}\partial h_{\alpha\beta}}=\frac{\partial^2 M^{\alpha\beta}}{\partial h_{\kappa\lambda}\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\left(\frac{\partial^2 M^{\alpha\beta}}{\partial h_{\kappa\lambda,\sigma}\partial h_{\mu\nu,\rho}}+\frac{\partial^2 M^{\mu\nu}}{\partial h_{\kappa\lambda,\sigma}\partial h_{\alpha\beta,\rho}}\right).
+\end{equation}
+At all higher orders \(n\ge 2\), we may simply integrate twice by \(h_{\mu\nu}\) to find the promised formula
+\begin{equation}\label{PsiForm}
+     \Psi^{\mu\nu\rho\sigma}=\frac{1}{n(n-1)}h_{\alpha\beta}h_{\kappa\lambda}\left(\frac{\partial^2 M^{\alpha\beta}}{\partial h_{\kappa\lambda}\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\frac{\partial^2 M^{\alpha\beta}}{\partial h_{\kappa\lambda,\sigma}\partial h_{\mu\nu,\rho}}-\frac{1}{2}\frac{\partial^2 M^{\mu\nu}}{\partial h_{\kappa\lambda,\sigma}\partial h_{\alpha\beta,\rho}}\right).
+\end{equation}
+We cannot add a ``constant of integration" term that is constant or linear in \(h_{\mu\nu}\), since it would not be of order \(n\). 
+
+To be clear, the second derivative \(\frac{\partial^2 }{\partial h_{\kappa\lambda}\partial h_{\alpha\beta}}\) of \eqref{PsiForm} for a given \(M^{\mu\nu}\) does not necessarily equal the RHS of \eqref{ddPsidhdh}; this holds if and only if the latter satisfies some integrability conditions\footnote{Namely, it must be symmetric under the exchange \(\alpha\beta\leftrightarrow\kappa\lambda\) and its \(\frac{\partial }{\partial h_{\gamma\delta}}\) derivative must be symmetric under the exchange \(\alpha\beta\leftrightarrow\gamma\delta\)}. But these conditions are necessary in order for \eqref{ddPsidhdh} to be satisfied at all, so \eqref{ddPsidhdh} does imply \eqref{PsiForm}.
+
+In the case \(n=1\), equation \eqref{1stdivpart} is just \(0=0\), and doesn't help us. But we can instead write \eqref{H3forDel} in terms of the matter field derivatives, and extract the parts proportional to each \(\phi_{i,\tau}\):
+\begin{equation}\label{n=1grad}
+\begin{split}
+&\sum_i \frac{\partial^2 \Psi^{\mu\nu\gamma\sigma}}{\partial \phi_i\partial h_{\alpha\beta}}\phi_{i,\sigma}-\sum_i\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_i\partial h_{\mu\nu,\gamma\delta}}\phi_{i,\delta}+\frac{1}{2}\left(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}+\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}\right)=0\\
+\Rightarrow &\forall i, \left(\frac{\partial^2 \Psi^{\mu\nu\gamma\sigma}}{\partial \phi_i\partial h_{\alpha\beta}}\delta_\sigma^\tau-\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_i\partial h_{\mu\nu,\gamma\delta}}\delta_\delta^\tau+\frac{1}{2}\frac{\partial^2 M^{\mu\nu}}{\partial\phi_{i,\tau} \partial h_{\alpha\beta,\gamma}}+\frac{1}{2}\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_{i,\tau} \partial h_{\mu\nu,\gamma}}\right)\phi_{i,\tau}=0\\
+\Rightarrow &\forall i,\  \frac{\partial^2 \Psi^{\mu\nu\rho\sigma}}{\partial \phi_i\partial h_{\alpha\beta}}=\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_i\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\frac{\partial^2 M^{\mu\nu}}{\partial\phi_{i,\sigma} \partial h_{\alpha\beta,\rho}}-\frac{1}{2}\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_{i,\sigma} \partial h_{\mu\nu,\rho}}\\
+\Rightarrow&\forall i,\  \frac{\partial \Psi^{\mu\nu\rho\sigma}}{\partial \phi_i}=h_{\alpha\beta}\left(\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_i\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\frac{\partial^2 M^{\mu\nu}}{\partial\phi_{i,\sigma} \partial h_{\alpha\beta,\rho}}-\frac{1}{2}\frac{\partial^2 M^{\alpha\beta}}{\partial\phi_{i,\sigma} \partial h_{\mu\nu,\rho}}\right)
+\end{split}
+\end{equation}
+by the same reasoning as above. In the last line we integrated by \(h_{\alpha\beta}\) - i.e, we just multiplied by that field, since the integrand doesn't depend on it. The \(\phi_i\) integral remains. We cannot give a formula for it here, because we are allowing general functions of the matter fields. However, thinking of the \({\phi_i}\) as directions in configuration space, \ref{n=1grad} gives a formula for the gradient of \(\Psi^{\mu\nu\rho\sigma}\). We also know that at the origin of this space, where all of the matter fields are zero, we must have that \(\Psi^{\mu\nu\rho\sigma}=0\); otherwise we must subtract out this nonzero part and treat it as a linear pure-gravity term, modifying the original linear wave equation. Therefore, \(\Psi^{\mu\nu\rho\sigma}\) is determined uniquely by integrating its gradient along a path through the (simply-connected) configuration space, from the origin to the value of \({\phi_i}\). This works if and only if the gradient field is integrable; otherwise there is no solution.
+
+To give a relatively explicit formula, we choose the linear path, where all the matter fields are simply multiplied by a factor \(\lambda\) that ranges from 0 to 1: \(\phi'_i(\lambda)=\lambda\phi_i\). Then the ``velocity" \(\frac{d\phi'_i}{d\lambda}\) is just \(\phi_i\) itself. So the integral along the path becomes
+\begin{equation}\label{n=1int}
+\Psi^{\mu\nu\rho\sigma}=\intop_0^1d\lambda\sum_i\phi_ih_{\alpha\beta}\left(\frac{\partial^2 M'^{\alpha\beta}}{\partial\phi'_i\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\frac{\partial^2 M'^{\mu\nu}}{\partial\phi'_{i,\sigma} \partial h_{\alpha\beta,\rho}}-\frac{1}{2}\frac{\partial^2 M'^{\alpha\beta}}{\partial\phi'_{i,\sigma} \partial h_{\mu\nu,\rho}}\right),
+\end{equation}
+where \(M'^{\mu\nu}\) is defined by substituting \(\phi'_i(\lambda)\) in place of \(\phi_i\) for all the matter fields (simultaneously). Note that we substitute \(\phi'_i=\lambda\phi_i\) only after taking the partial derivatives of \(M'^{\mu\nu}\) by \(\phi'_i\) and its derivatives. 
+
+Thus, we have shown that there is at most one identically conserved term that can be added to a given \(M^{\mu\nu}\) to get an E-L derivative, and that when it exists, \(\Psi^{\mu\nu\rho\sigma}\) is given explicitly by \eqref{PsiForm} or by the integral \eqref{n=1int}. This may fail to give a valid solution in several ways: \eqref{ddPsidhdh} or \eqref{n=1grad} may fail to be integrable, \(\Psi^{\mu\nu\rho\sigma}\) may fail to satisfy the three-way antisymmetry \eqref{3antiPsi} (in which case \(\Delta^{\mu\nu}\) will not be conserved) or fail to be symmetric in the last two indices (contradicting the assumptions used to derive it), or the sum \(M^{\mu\nu}+ \Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}\) may fail to satisfy various parts of the Helmholtz conditions. In any of these cases, the conclusion is that \(M^{\mu\nu}\) cannot be made into an E-L derivative by adding any identically conserved term. 
+
+\subsection{Field Redefinitions}
+The goal of the bootstrap program is to show that GR is the unique completion of the linear equation \eqref{lin}, but this clearly cannot be literally correct. There will always be some non-uniqueness, due to the freedom to redefine our fields. 
+
+Consider a Lagrangian \(\mathcal{L}\),  depending on a tensor \(h_{\mu\nu}\), other fields \(\{\phi_i\}\), and their first derivatives. Suppose we rewrite this Lagrangian in terms of a new tensor variable \(h_{\mu\nu}'\), defined implicitly by 
+\begin{equation}
+    h_{\mu\nu}=h_{\mu\nu}'+f_{\mu\nu}
+\end{equation}
+where \(f_{\mu\nu}\) is some function of \(h_{\mu\nu}'\) and of the \(\{\phi_i\}\), of at least second order in \(h_{\mu\nu}'\), and with no dependence on derivatives. (Field redefinitions involving derivatives would introduce terms with more than two derivatives into the EOM, at least if it is already second-order in derivatives, as in the gravity case. This is ruled out by our self-limitation to consider only up to two derivatives.) 
+
+This redefinition changes the EOM from \(E_h^{\alpha\beta}=\frac{\delta\mathcal{L}}{\delta h_{\alpha\beta}}\) to \(E_{h'}^{\alpha\beta}=\frac{\delta\mathcal{L}}{\delta h'_{\alpha\beta}}\). Since we have merely changed the variables used in expressing the action functional, the different equations of motion must lead to physically equivalent dynamics: 
+\begin{equation}
+E_h^{\alpha\beta}(h_{\mu\nu})=0 \Leftrightarrow E_{h'}^{\alpha\beta}(h'_{\mu\nu})=0.
+\end{equation}
+However, the two expressions \(E_h^{\alpha\beta},E_{h'}^{\alpha\beta}\) are clearly different as functions, and the differences do not generally vanish on solutions. This is not surprising, because the two equations describe the behaviors of different fields. If we are interested in a particular, definite field, say one defined (precisely) in terms of a specified measurement protocol, then that field can satisfy at most one of these equations - to be determined by experiment. Furthermore, since \(f_{\mu\nu}\) is at least of second order in \(h_{\mu\nu}'\), the lowest-order parts of the two equations will be the same. Thus, these two complete equations must both be equally consistent completions of the lowest-order part.  This shows that it can never be the case that the low-order part of a theory has only a single, fully unique higher-order completion. This non-uniqueness applies to all field theories, and in particular to our linearized gravity theory \eqref{lin}.
+
+Therefore, a claim such as the Bootstrap Claim can at best be interpreted as promising uniqueness up to field redefinitions; that is, to uniquely fix a \textit{family} of equations of motion, related to one another by field redefinitions. The Venusians presumably understand this point, so they will be satisfied if they succeed in showing this level of uniqueness order by order\footnote{Unfortunately, if they arbitrarily choose one equation from this family, then it will likely not be the conceptually simplest one - the one given by expanding the EFE using \(g_{\mu\nu} = \eta_{\mu\nu} + 2\kappa h_{\mu\nu}\). It will instead be some equation that can be derived by setting \(g_{\mu\nu} = \eta_{\mu\nu} + 2\kappa h_{\mu\nu}'+2\kappa f_{\mu\nu}\), for some complicated \(f_{\mu\nu}\). Sadly, this may make it much harder for the Venusians to eventually discover the geometric interpretation of the theory.}.
+
+[It seems worth mentioning here that some such field redefinitions lead to formulations of perturbative GR that are in use in the literature, based on definitions of the field other than \(g_{\mu\nu} = \eta_{\mu\nu} + 2\kappa h_{\mu\nu}\). For instance, some set \cite{Butcher} \(g^{\mu\nu} = \eta^{\mu\nu} -  h'^{\mu\nu}\). In that case, our \(h_{\mu\nu}\) is given in terms of \(h_{\mu\nu}'\) by
+\begin{equation} 
+h_{\mu\nu}=\frac{1}{2\kappa}\left({\left(\eta^{\mu\nu} -  h'^{\mu\nu}\right)}^{-1}-\eta_{\mu\nu}\right)=\frac{\eta_{\mu\rho}}{2\kappa}\sum_{n=1}^\infty {\left(h_{\ \ \nu}^{\prime\rho}\right)}^n.
+\end{equation}
+This is a field redefinition, with an \(f_{\mu\nu}\) whose lowest order is
+\begin{equation}
+    f_{\mu\nu}^{(2)}= 2\kappa h''_{\mu\rho}h''^{\rho}_{\ \ \nu},
+\end{equation}
+applied after a rescaling \(h'_{\mu\nu}=2\kappa h''_{\mu\nu}\) to match our normalization.]
+
+Now let us examine in detail how a field redefinition changes the EOM. We use the chain rule to find:
+\begin{equation}
+E_{h'}^{\alpha\beta}(h'_{\mu\nu})=\frac{\delta\mathcal{L}}{\delta h'_{\alpha\beta}}=\frac{\delta\mathcal{L}}{\delta h_{\rho\sigma}}\frac{\partial h_{\rho\sigma}}{\partial h'_{\alpha\beta}}=E_h^{\rho\sigma}(h'_{\mu\nu}+f_{\mu\nu})\cdot\left(\delta_\rho^\alpha\delta_\sigma^\beta+\frac{\partial f_{\rho\sigma}}{\partial h'_{\alpha\beta}}\right).
+\end{equation}
+The first factor is just \(E_h^{\rho\sigma}(h_{\mu\nu})\), but written in terms of \(h'_{\mu\nu}\) by substituting \(h_{\mu\nu}=h_{\mu\nu}'+f_{\mu\nu}\). 
+
+If we now consider a Lagrangian term of order \(m\) in \(h_{\mu\nu}\), and a field redefinition with an \(f_{\mu\nu}\) of order \(n\) in \(h'_{\mu\nu}\), the change in the field equation has two contributions at the lowest order, namely order \(m+n-2\):
+\begin{equation}\label{redefEh}
+\left(E_{h}^{\alpha\beta(m-1)}(h'_{\mu\nu}+f_{\mu\nu})\right)^{(m+n-2)}+E_{h}^{\rho\sigma(m-1)}(h'_{\mu\nu})\cdot\frac{\partial f_{\rho\sigma}}{\partial h'_{\alpha\beta}}
+\end{equation}
+The first of these is the next-to-lowest-order part of the expansion of \(E_h^{\alpha\beta}(h_{\mu\nu})\). It can be written more explicitly as 
+\begin{equation}
+\left(E_{h}^{\alpha\beta(m-1)}(h'_{\mu\nu}+f_{\mu\nu})\right)^{(m+n-2)}=\frac{\partial E_h^{\alpha\beta(m-1)}}{\partial h_{\rho\sigma}}f_{\rho\sigma}+\frac{\partial E_h^{\alpha\beta(m-1)}}{\partial h_{\rho\sigma,\gamma}}f_{\rho\sigma,\gamma}+\frac{\partial E_h^{\alpha\beta(m-1)}}{\partial h_{\rho\sigma,\gamma\delta}}f_{\rho\sigma,\gamma\delta}.
+\end{equation}
+For instance, for the Lagrangian term \(\mathcal{L}_h^{(2)}\), we have \(E_h^{\mu\nu(1)}=W^{\mu\nu}\) which is linear in second derivatives of \(h_{\mu\nu}\), and so the correction will equal the same wave operator applied to \(f_{\mu\nu}\). On the other hand, the part of the EOM coming from the interaction term \(\kappa h_{\mu\nu}T^{\mu\nu}_M\) is just \(E_h^{\mu\nu(0)}=\kappa T_M^{\mu\nu}\) which has no dependence on \(h_{\mu\nu}\), so this class of correction does not appear at order \(n-1\). 
+
+The second correction, \(E_{h}^{\rho\sigma(m-1)}(h'_{\mu\nu})\cdot\frac{\partial f_{\rho\sigma}}{\partial h'_{\alpha\beta}}\), is directly proportional to \(E_{h}^{\mu\nu(m-1)}\) and will occur for every \(m\). So this is clearly an EOM term, with \(\frac{\partial f_{\rho\sigma}}{\partial h'_{\mu\nu}}\) playing the role of the coefficient function \(X_h^{\mu\nu}{}_{\rho\sigma}\). This correspondence between EOM terms and field redefinitions was mentioned by Deser\cite{Deser}. But as pointed out by \cite{Barcelo}, the fact that the corrections match to lowest order does not imply that adding the EOM term will allow the iterative bootstrap to continue, and correctly generate the higher-order terms of \(E_{h'}^{\alpha\beta}(h'_{\mu\nu})\). Indeed, it is not obvious how the needed \(\left(E_{h}^{\alpha\beta(m-1)}(h'_{\mu\nu}+f_{\mu\nu})\right)^{(m+n-2)}\) terms will be generated. We will later show that these turn out to be superpotential terms, and are generated by our formula \eqref{PsiForm}.
+
+Furthermore, it is not the case that \textit{every} EOM term is equivalent to a field redefinition. This hold if and only if \(X_h^{\mu\nu}{}_{\rho\sigma}\) can be written as \(\frac{\partial f_{\rho\sigma}}{\partial h_{\mu\nu}}\) for some \(f_{\rho\sigma}\) - i.e., iff \(X_h^{\mu\nu}{}_{\rho\sigma}\) is integrable as a gradient, with zero ``curl": 
+\begin{equation}
+\frac{\partial X_h^{\mu\nu}{}_{\rho\sigma}}{\partial h_{\kappa\lambda}}-\frac{\partial X_h^{\kappa\lambda}{}_{\rho\sigma}}{\partial h_{\mu\nu}}=0.
+\end{equation}
+This is just an example of the Frobenius theorem. It is easy to show it explicitly: the condition is necessary by the symmetry of the second partial derivative \(\frac{\partial^2 f_{\rho\sigma}}{\partial h_{\mu\nu}\partial h_{\kappa\lambda}}\), and it is sufficient because we can set \(f_{\rho\sigma}=\frac{1}{n}h_{\alpha\beta}X_h^{\alpha\beta}{}_{\rho\sigma}\) and get back
+\begin{equation}
+\frac{\partial f_{\rho\sigma}}{\partial h_{\mu\nu}}=\frac{1}{n}\delta^\mu_\alpha\delta^\nu_\beta X_h^{\alpha\beta}{}_{\rho\sigma}+\frac{n-1}{n}h_{\alpha\beta}\frac{\partial X_h^{\alpha\beta}{}_{\rho\sigma}}{\partial h_{\mu\nu}}=X_h^{\mu\nu}{}_{\rho\sigma}.
+\end{equation}
+Thus, our goal in the next subsection is to show that the EOM terms satisfying this integrability condition are precisely the same ones that are allowed by the Helmholtz conditions.
+
+Field redefinitions of the matter fields work very similarly. we can define a new field \(\phi'_i\) using a relation of the form 
+\begin{equation}
+    \phi_i=\phi'_i+f
+\end{equation}
+where \(f\) is some function of \(h_{\mu\nu}\), of \(\phi'_i\), and of the other fields \(\{\phi_j\}\), of order \(n\ge 1\) in \(h_{\mu\nu}\), and without dependence on derivatives. (Again, field redefinitions involving derivatives would introduce terms with more than two derivatives into the EOM for \(\phi_i'\). One reason we specified that the matter field EOMs have two derivatives is to ensure that this point holds, so as to justify ignoring the complexities of redefinitions involving derivatives). Then the modified field equation will be:
+\begin{equation}\begin{split}
+    \frac{\delta\mathcal{L}(h_{\mu\nu},\phi'_i,\{\phi_j\})}{\delta h_{\mu\nu}}&=\frac{\delta\mathcal{L}(h_{\mu\nu},\phi_i,\{\phi_j\})}{\delta h_{\mu\nu}}+\frac{\delta\mathcal{L}(h_{\mu\nu},\phi_i,\{\phi_j\})}{\delta \phi_i}\frac{\partial \phi_i}{\partial h_{\mu\nu}}\\
+    &=E_h^{\mu\nu}(\phi'_i+f)+E_{\phi_i}(\phi'_i+f)\cdot\frac{\partial f}{\partial h_{\mu\nu}}.
+\end{split}\end{equation}
+For a Lagrangian term of order \(m\) and a field redefinition with an \(f\) of order \(n\), we get two corrections at the lowest order \(m+n-1\):
+\begin{equation}
+\left(E_h^{\mu\nu(m-1)}(\phi'_i+f)\right)^{m+n-1}+E^{(m)}_{\phi_i}(\phi'_i)\cdot\frac{\partial f}{\partial h_{\mu\nu}}.
+\end{equation}
+There is also a contribution from \(E^{(m)}_{\phi'_i+f}\), but it's of order \(m+2n-1\). 
+
+In this case we have a contribution from the \(m=0\) Lagrangian term \(\mathcal{L}_M\), namely \(E^{(0)}_{\phi_i}(\phi'_i)\cdot\frac{\partial f}{\partial h_{\mu\nu}}\). Again, this is an EOM term with coefficient function \(X_{\phi_i}^{\mu\nu}=\frac{\partial f}{\partial h_{\mu\nu}}\). We need to show that adding such a term allows the bootstrap to continue correctly, including the \(\left(E_h^{\mu\nu(m-1)}(\phi'_i+f)\right)^{m+n-1}\) terms. And again, this only allows integrable coefficient functions, with
+\begin{equation}
+\frac{\partial X_{\phi_i}^{\mu\nu}}{\partial h_{\kappa\lambda}}-\frac{\partial X_{\phi_i}^{\kappa\lambda}}{\partial h_{\mu\nu}}=0,
+\end{equation}
+which we will show is equivalent to the Helmholtz conditions. 
+\subsection{Constraining the Equation-of-Motion Terms}
+To determine which EOM terms must or may be added to our energy-momentum \(T^{\mu\nu(n)}\), let us analyze the implications of the second Helmholtz condition \eqref{H2}:
+\begin{equation}\label{H2copy}
+{\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}-\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}\right)}_{,\gamma}=2\left(\frac{\partial E^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial E^{\alpha\beta}}{\partial h_{\mu\nu}}\right).
+\end{equation}
+We will begin by asking which combinations of EOM terms satisfy this condition on their own, at the lowest order. This is the point at which the choice is made whether to add them. At this order, we would be adding a tensor the form \(\kappa T^{\mu\nu}_MX_h^{\mu\nu}{}_{\rho\sigma}+\sum_iE_{\phi_i}^{(0)}X_{\phi_i}^{\mu\nu}\). This doen't depend at all on derivatives of \(h_{\mu\nu}\), and their dependence on \(h_{\mu\nu}\) itself is only through the coefficient functions. Thus, the above condition becomes 
+\begin{equation}
+T^{\rho\sigma}_M\left(\frac{\partial X_h^{\mu\nu}{}_{\rho\sigma}}{\partial h_{\alpha\beta}}-\frac{\partial X_h^{\alpha\beta}{}_{\rho\sigma}}{\partial h_{\mu\nu}}\right)+\sum_iE_{\phi_i}^{(0)}\left(\frac{\partial X_{\phi_i}^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial X_{\phi_i}^{\alpha\beta}}{\partial h_{\mu\nu}}\right)=0.
+\end{equation}
+Since the \(E_{\phi_i}^{(0)}\) are linearly independent \AM{What if \(T_M\), or some components of it, break the linear independence? Need to address this.}, we must have 
+\begin{equation}
+\frac{\partial X_h^{\mu\nu}{}_{\rho\sigma}}{\partial h_{\alpha\beta}}-\frac{\partial X_h^{\alpha\beta}{}_{\rho\sigma}}{\partial h_{\mu\nu}}=0,\text{ and }\forall\phi_i,\ \ \frac{\partial X_{\phi_i}^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial X_{\phi_i}^{\alpha\beta}}{\partial h_{\mu\nu}}=0.
+\end{equation}
+These are precisely the integrability conditions we have seen in the previous subsection. Thus, we have confirmed that EOM terms cannot be freely added unless they correspond, at lowest order, to field redefinitions. 
+
+Next, we suppose that we are given a symmetric tensor \(M^{\mu\nu}\), (depending on \(h_{\mu\nu}\) and the \(\{\phi_i\}\), of order \(n\) in \(h_{\mu\nu}\), and containing up to two derivatives), and we wish to add to it an EOM term so that the total should satisfy the second Helmholtz condition \eqref{H2copy}. Then the condition takes the form:
+\begin{equation}
+2T^{\rho\sigma}_M\left(\frac{\partial X_h^{\mu\nu}{}_{\rho\sigma}}{\partial h_{\alpha\beta}}-\frac{\partial X_h^{\alpha\beta}{}_{\rho\sigma}}{\partial h_{\mu\nu}}\right)+2\sum_iE_{\phi_i}^{(0)}\left(\frac{\partial X_{\phi_i}^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial X_{\phi_i}^{\alpha\beta}}{\partial h_{\mu\nu}}\right)=-Z^{\mu\nu\alpha\beta},
+\end{equation}
+where
+\begin{equation}
+    Z^{\mu\nu\alpha\beta}=2\left(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu}}\right)-{\left(\frac{\partial M^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}-\frac{\partial M^{\alpha\beta}}{\partial h_{\mu\nu,\gamma}}\right)}_{,\gamma}.
+\end{equation}
+We see that for this to be possible, the rank-four tensor \(Z^{\mu\nu\alpha\beta}\), representing the failure of \eqref{H2copy} for \(M^{\mu\nu}\), must itself be a sum of functions proportional to the order-zero EOMs. The coefficient functions, which we will call \(Y_h^{\mu\nu\alpha\beta}{}_{\rho\sigma}\) and \(Y_{\phi_i}^{\mu\nu\alpha\beta}\), will be functions of the fields without any derivatives. Like \(Z^{\mu\nu\alpha\beta}\), they will be antisymmetric under the exchange \((\mu\nu\leftrightarrow\alpha\beta)\).
+
+Once we have performed the linear decomposition of \(Z^{\mu\nu\alpha\beta}\) and found these coefficient tensors, we wish to use each \(Y_{\phi_i}^{\mu\nu\alpha\beta}\) to recover the corresponding \(X_{\phi_i}^{\mu\nu}\), satisfying \(\frac{\partial X_{\phi_i}^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial X_{\phi_i}^{\alpha\beta}}{\partial h_{\mu\nu}}=-\frac{1}{2}Y_{\phi_i}^{\mu\nu\alpha\beta}\), so as to add \(X_{\phi_i}^{\mu\nu}E_{\phi_i}^{(0)}\) to \(M^{\mu\nu}\). It turns out that this is very easy: we may simply set
+\begin{equation}
+X_{\phi_i}^{\mu\nu}=-\frac{1}{2(n+1)}Y_{\phi_i}^{\mu\nu\alpha\beta}h_{\alpha\beta}.
+\end{equation}
+To see why this works, we note that if \textit{any} valid \(X_{\phi_i}^{\mu\nu}\) exists - that is, if \(Y_{\phi_i}^{\mu\nu\alpha\beta}\) is in fact an antisymmetric derivative in field space, like the exterior derivative of a one-form - then it will satisfy a Bianchi-like identity
+\begin{equation}
+\frac{\partial Y_{\phi_i}^{\mu\nu\alpha\beta}}{\partial h_{\rho\sigma}}+\frac{\partial Y_{\phi_i}^{\alpha\beta\rho\sigma}}{\partial h_{\mu\nu}}+\frac{\partial Y_{\phi_i}^{\rho\sigma\mu\nu}}{\partial h_{\alpha\beta}}=0.
+\end{equation}
+We also note that since \(Y_{\phi_i}^{\mu\nu\alpha\beta}\) is a homogeneous polynomial in \(h_{\mu\nu}\), we have
+\begin{equation}
+\frac{\partial Y_{\phi_i}^{\mu\nu\alpha\beta}}{\partial h_{\rho\sigma}}h_{\rho\sigma}=(n-1)Y_{\phi_i}^{\mu\nu\alpha\beta}.
+\end{equation}
+
+Using these facts, we can compute:
+\begin{equation}\begin{split}
+\frac{\partial X_{\phi_i}^{\mu\nu}}{\partial h_{\alpha\beta}}-\frac{\partial X_{\phi_i}^{\alpha\beta}}{\partial h_{\mu\nu}}&=\frac{-1}{2(n+1)}\left(\frac{\partial}{\partial h_{\alpha\beta}}\left(Y_{\phi_i}^{\mu\nu\rho\sigma}h_{\rho\sigma}\right)-\frac{\partial}{\partial h_{\mu\nu}}\left(Y_{\phi_i}^{\alpha\beta\rho\sigma}h_{\rho\sigma}\right)\right)\\
+&=\frac{-1}{2(n+1)}\left(\frac{\partial Y^{\mu\nu\rho\sigma}}{\partial h_{\alpha\beta}}h_{\rho\sigma}+Y^{\mu\nu\alpha\beta}-\frac{\partial Y^{\alpha\beta\rho\sigma}}{\partial h_{\mu\nu}}h_{\rho\sigma}-Y^{\alpha\beta\mu\nu}\right)\\
+&=\frac{1}{2(n+1)}\left(\left(\frac{\partial Y^{\rho\sigma\mu\nu}}{\partial h_{\alpha\beta}}+\frac{\partial Y^{\alpha\beta\rho\sigma}}{\partial h_{\mu\nu}}\right)h_{\rho\sigma}-2Y^{\mu\nu\alpha\beta}\right)\\
+&=\frac{1}{2(n+1)}\left(-\frac{\partial Y^{\mu\nu\alpha\beta}}{\partial h_{\rho\sigma}}h_{\rho\sigma}-2Y^{\mu\nu\alpha\beta}\right)\\
+&=\frac{-1}{2(n+1)}(n-1+2)Y^{\mu\nu\alpha\beta}\\
+&=-\frac{1}{2}Y^{\mu\nu\alpha\beta}
+\end{split}\end{equation}
+as desired. All of the above applies equally to \(Y_h^{\mu\nu\alpha\beta}{}_{\rho\sigma}\). 
+
+Thus, whenever it is possible to make \(M^{\mu\nu}\) satisfy \eqref{H2copy} by adding EOM terms, we have found the precise form of the corrections needed for this.
+
+Finally, let us consider how the second Helmholtz condition applies to superpotential terms. We will show that in fact, \textit{all} superpotential terms satisfy this condition. To see this, we use the expressions we derived above, \eqref{dDelddh}, for the dependence of \(\Delta^{\mu\nu}=\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}\) on first derivatives of \(h_{\mu\nu}\):
+\begin{equation}
+\frac{\partial \Delta^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}=2{\left(\frac{\partial \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\sigma}.
+\end{equation}
+We also need the partial derivative \(\frac{\partial\Delta^{\mu\nu}}{\partial h_{\alpha\beta}}\). For this, we use the general fact that given any function of fields and their derivatives to some order, taking partial derivatives by the fields (without derivatives) commutes with taking spacetime derivatives\footnote{Proof: for a function \(f\) depending on various fields \(\{\phi_i\}\) and their derivatives, we have 
+\begin{equation}
+\frac{\partial f_{,\mu}}{\partial\phi_i}=\frac{\partial }{\partial\phi_i}\left(\sum_j\frac{\partial f}{\partial\phi_j}\phi_{j,\mu}\right)=\sum_j\frac{\partial^2 f}{\partial\phi_i\partial\phi_j}\phi_{j,\mu}=\left(\frac{\partial f}{\partial\phi_i}\right)_{,\mu}.
+\end{equation}
+}. So we have
+\begin{equation}
+\frac{\partial \Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}}{\partial h_{\alpha\beta}}={\left(\frac{\partial \Psi^{\mu\nu\rho\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\rho\sigma}.  
+\end{equation}
+Putting these together, we see that,
+\begin{equation}
+{\left(\frac{\partial \Delta^{\mu\nu}}{\partial h_{\alpha\beta,\gamma}}\right)}_{,\gamma}=2{\left(\frac{\partial \Psi^{\mu\nu\gamma\sigma}}{\partial h_{\alpha\beta}}\right)}_{,\sigma\gamma}=2\frac{\partial\Delta^{\mu\nu}}{\partial h_{\alpha\beta}}.
+\end{equation}
+Taking the antisymmetric part of this under the exchange \((\mu\nu\leftrightarrow\alpha\beta)\) gives the second Helmholtz condition \eqref{H2copy}, as claimed.
+
+Thus we see that if we begin with an energy-momentum tensor that satisfies \eqref{H2copy}, we may add a superpotential term without disturbing that condition. This enables us to solve the Helmholtz conditions in two steps: first we find an EOM correction so as to make the proposed energy-momentum tensor satisfy \eqref{H2copy}, and then we add the superpotential term given by our formula \eqref{PsiForm}, making the total satisfy the third condition \eqref{H3} as well. 
+\subsection{Uniqueness to All Orders}
+The above discussion shows that the only allowed, optional changes to \(T^{\mu\nu(n)}\), at any order, are those that equal the lowest-order part of the change due to a field redefinition. It may seem difficult to determine whether continuing the bootstrap to higher orders will continue to generate all of the further effects of the field redefinition, justifying the claim that the optional changes do not break uniqueness. But in fact, it is clear that this must be the case.
+
+Our Venusians are already confident, based primarily on measurements, that the original linear equation \eqref{lin} is the lowest order of some consistent field theory. This means that there is at least one family of completions, related to one another by field redefinitions, each of which satisfies the Helmholtz conditions and has a conserved tensor as the RHS of the equation. That means that each member of this family will be reached, order by order, by some set of choices within the bootstrapping procedure. We have seen that the only freedom available is the ability to add integrable EOM terms. So given any particular one of these valid completions, there must be some sequence of such terms, at each \(n\), that causes the bootstrap to reach that equation precisely. Now if we instead choose to add any other integrable EOM term of some order \(n\), we can identify a field redefinition that will transform our first completion to one that is the same up to order \(n-1\), and has the desired change at order \(n\), along with its own (unknown) sequence of integrable EOM terms to be chosen at higher orders. If we then change this sequence by some other integrable EOM term at order \(m>n\), the same logic applies, with a further field redefinition. This guarantees that we are never ``on the wrong track" - after \textit{any} allowed sequence of chosen EOM terms, up to any any finite order, our developing equation will equal some valid completion within the same family, up to that order. 
+
+This in turn means that the procedure will continue to work: any violation of the second Helmholtz condition at order \(n+1\) will indeed be proportional to the equations of motion as required; and the superpotential terms we find via \eqref{PsiForm} will indeed be identically conserved. We will always be able to continue the bootstrap to the next order. Thus, we will always get a completion to all orders, and it will always be a member of the same unique family—namely, that of the Einstein Field Equation.
+
+In the Supplemental Material we demonstrate one nice example of the higher-order equivalence between integrable EOM terms and field redefinitions: that when we add \(\kappa T^{\mu\nu}_MX_h^{\mu\nu}{}_{\rho\sigma}\) at order \(n\), the term
+\(\left(W^{\alpha\beta}(h'_{\mu\nu}+f_{\mu\nu})\right)^{(n+1)}\) from \eqref{redefEh} is indeed generated at the next order, as a superpotential term given by our formula \eqref{PsiForm}.
+\section{The Complete Bootstrapping Procedure}
+
+[consider whether to put a detailed diagram here]\AY{I would say yes.}
+
+We can now explicitly set out our ``Venusian" procedure to bootstrap a completion to the linear theory of gravity. We develop the field equation \(E^{\mu\nu}=\frac{\delta\mathcal{L}}{\delta h_{\mu\nu}}=W^{\mu\nu}+\kappa T_{tot}^{\mu\nu}\) order by order, except for the spin-2 wave term \(W^{\mu\nu}\) (eq. \eqref{W}), which we put in by hand at order 1. The derived terms \(\kappa T^{\mu\nu(n)}\) are meant to be moved to the RHS of the equation of motion, representing the "total energy-momentum" which is the source in the wave equation \(W^{\mu\nu}=-\kappa T_{tot}^{\mu\nu}\). For each order \(n\ge 0\) in turn, we determine the terms \(E^{\mu\nu(n)}=\kappa (T_h^{\mu\nu(n)}+T_{int}^{\mu\nu(n)})\) of the field equation, followed by the corresponding corrections \(\mathcal{L}^{(n+1)}=\mathcal{L}_h^{(n+1)}+\mathcal{L}_{int}^{(n+1)}\) to the Lagrangian. As an ``initial condition", we write  \(\mathcal{L}^{(0)}=\mathcal{L}_{M}\). While computing each \(E^{\mu\nu(n)}\) we will see several intermediate stages; we indicate these by subscripts \(E_1^{\mu\nu(n)},E_2^{\mu\nu(n)},...\), while the final results have no subscript. The steps for each order \(n\) are as follows:
+% Put the same titles as in the figure at the beginning of each bullet below, and make it bold
+% Also point the reader to the diagram
+\begin{enumerate}
+    \item Using either the Hilbert or the Symmetrized Belinfante procedure, calculate the ``unimproved" energy-momentum tensor from the Lagrangian terms of order \(n\). Multiply this by \(\kappa\) to get the initial contribution to \(E^{\mu\nu(n)}\). If \(n=1\), include the wave-equation term \(W^{\mu\nu}\) as well.
+    \begin{equation}
+    E_1^{\mu\nu(n)}=\kappa\hat{T}^{\mu\nu}[\mathcal{L}^{(n)}]+\delta_1^n\ W^{\mu\nu}
+    \end{equation}
+    When \(n=0\), we get \(\ E_1^{\mu\nu(0)}=\kappa\hat{T}^{\mu\nu}[\mathcal{L}_M]=\kappa T_M^{\mu\nu}\). 
+    \item If we have added any EOM terms, \( X_h^{\mu\nu}{}_{\kappa\lambda}^{(m)}E^{\kappa\lambda(0)}\) and/or \(X_{\phi_i}^{\mu\nu(m)}E_{\phi_i}^{(0)}\), at one or more lower orders \(m<n\)  (in step 3 and/or 4 of the bootstrap loop, for mandatory or optional terms respectively), then we now add the order-\(n\) parts of those contributions, namely those proportional to the order \(n-m\) terms of the corresponding equations of motion:
+\begin{equation}
+    E_2^{\mu\nu(n)}= E_1^{\mu\nu(n)}+\sum_{m=0}^{n-1} \left(X_h^{\mu\nu}{}_{\kappa\lambda}^{(m)}E^{\kappa\lambda(n-m)}+\sum_i X_{\phi_i}^{\mu\nu(m)}E_{\phi_i}^{(n-m)}\right).
+\end{equation}
+We are able to do this since we already have the Lagrangian up to order \(n\), so we can compute the matter EOMs \(E_{\phi_i}^{(n-m)}=\frac{\delta\mathcal{L}^{(n-m)}}{\delta\phi_i}\) for all \(0\le m\); while we have the gravity EOM up to \(E^{\mu\nu(n-1)}\), which is what we need as long as \(1\le m\). Recall that we have insisted that EOM terms proportional to \(E^{\mu\nu}\) must have coefficients \(X_h^{\mu\nu}{}_{\kappa\lambda}\) that depend on \(h_{\mu\nu}\), so we don't need to worry about \(m=0\) here.
+    \item Now we add new EOM terms, at lowest order, such that after this correction, \(E_3^{\mu\nu(n)}\) will satisfy the second Helmholtz condition \eqref{H2}. We do this as described in the previous section. First we calculate the violation of \eqref{H2}: 
+\begin{equation}
+    Z^{\mu\nu\rho\sigma(n-1)}=2\left(\frac{\partial E_2^{\mu\nu(n)}}{\partial h_{\rho\sigma}}-\frac{\partial E_2^{\rho\sigma(n)}}{\partial h_{\mu\nu}}\right)-{\left(\frac{\partial E_2^{\mu\nu(n)}}{\partial h_{\rho\sigma,\tau}}-\frac{\partial E_2^{\rho\sigma(n)}}{\partial h_{\mu\nu,\tau}}\right)}_{,\tau}
+\end{equation}
+Note that for \(n=0\) we have \(Z^{\mu\nu\rho\sigma(n-1)}=0\), meaning that \eqref{H2} is automatically satisfied and no EOM terms are needed.
+
+Next, we perform a linear decomposition of the result into terms proportional to the lowest-order EOMs:  
+\begin{equation}
+    Z^{\mu\nu\rho\sigma(n-1)}=Y_h^{\mu\nu\rho\sigma}{}_{\kappa\lambda}^{(n-1)}E^{\kappa\lambda(0)}+ \sum_i Y_{\phi_i}^{\mu\nu\rho\sigma(n-1)}E_{\phi_i}^{(0)}.
+\end{equation}
+This is guaranteed to be possible as long as the bootstrap has any valid continuation. The \(Y_h^{\mu\nu\rho\sigma}{}_{\kappa\lambda}^{(n-1)}\) and \(Y_{\phi_i}^{\mu\nu\rho\sigma(n-1)}\) tensors will be functions of the fields without any derivatives, and with exactly \(n-1\) powers of \(h_{\mu\nu}\). 
+
+Now we set 
+\begin{equation}
+    X_h^{\mu\nu}{}_{\kappa\lambda}^{(n)}=-\frac{1}{2(n+1)}Y_h^{\mu\nu\rho\sigma}{}_{\kappa\lambda}^{(n-1)}h_{\rho\sigma}\text{, and }
+X_{\phi_i}^{\mu\nu(n)}=-\frac{1}{2(n+1)}Y_{\phi_i}^{\mu\nu\rho\sigma(n-1)}h_{\rho\sigma}
+\end{equation}
+for each \(\phi_i\). This gives the EOM terms we must add:
+\begin{equation}
+E_3^{\mu\nu(n)}=E_2^{\mu\nu(n)}+X_h^{\mu\nu}{}_{\kappa\lambda}^{(n)}E^{\kappa\lambda(0)}+\sum_i X_{\phi_i}^{\mu\nu(n)}E_{\phi_i}^{(0)},
+\end{equation}
+which will satisfy \eqref{H2}, as shown in the previous section (again assuming that the bootstrap has some valid continuation).
+
+\item If desired, we may add additional EOM terms, if and only if their coefficient functions are of the integrable form
+\begin{equation}
+X'^{\mu\nu}_h{}_{\kappa\lambda}^{(n)}=\frac{\partial f_{\kappa\lambda}^{(n+1)}}{\partial h_{\mu\nu}}\text{ and/or } X'^{\mu\nu(n)}_{\phi_i}=\frac{\partial f_{\phi_i}^{(n+1)}}{\partial h_{\mu\nu}},
+\end{equation}
+where \(f_{\kappa\lambda}^{(n+1)}\) or \(f_{\phi_i}^{(n+1)}\) is a function of the fields without any derivatives, and with exactly \(n+1\) powers of \(h_{\mu\nu}\). As shown in the previous section, this condition ensures that the second Helmholtz condition \eqref{H2} continues to be satisfied, and also that the change in the EOM is equivalent to the lowest-order effect of a field redefinition, with \(h_{\mu\nu}=h'_{\mu\nu}+f_{\mu\nu}^{(n+1)}(h'_{\alpha\beta})\) or \(\phi_i=\phi'_i+f_{\phi_i}^{(n+1)}(\phi'_i)\). 
+
+For \(n=0\), we not not allow EOM terms proportional to \(E^{\mu\nu}\), which would amount to a reformulation of the original \eqref{lin}. But we do allow matter EOM terms. In fact, \(X'^{\mu\nu(0)}_{\phi_i}\) may be \textit{any} function of the matter fields without derivatives, since we can always set \(f_{\phi_i}^{(1)}=X'^{\mu\nu(0)}_{\phi_i}h_{\mu\nu}\). One such allowed modification is the difference between the Hilbert and Symmetrized Belinfante versions of \(\kappa T_M^{\mu\nu}\), which always has the form \(\sum_i X'^{\mu\nu(0)}_{\phi_i}E_{\phi_i}^{(0)}\).
+
+The optional EOM terms are added to \(E_3^{\mu\nu(n)}\):
+\begin{equation}
+E_4^{\mu\nu(n)}=E_3^{\mu\nu(n)}+X'^{\mu\nu}_h{}_{\kappa\lambda}^{(n)}E^{\kappa\lambda(0)}+\sum_i X'^{\mu\nu(n)}_{\phi_i}E_{\phi_i}^{(0)}.
+\end{equation}
+\item  The final step in determining \(E^{\mu\nu(n)}\) is to add an identically conserved term \(\Delta^{\mu\nu(n)}\) such that the sum \(E^{\mu\nu(n)}=E_4^{\mu\nu(n)}+\Delta^{\mu\nu(n)}\) will satisfy the third Helmholtz condition \eqref{H3}. As we have seen, the new term will take the form \(\Delta^{\mu\nu(n)}=\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}^{(n)}\), and we determine \(\Psi^{\mu\nu\rho\sigma(n)}\) using the formulas we have derived above.
+
+For \(n\ge 2\), we use our \eqref{PsiForm}:
+\begin{equation}
+     \Psi^{\mu\nu\rho\sigma(n)}=\frac{1}{n(n-1)}h_{\alpha\beta}h_{\kappa\lambda}\left(\frac{\partial^2 E_4^{\alpha\beta(n)}}{\partial h_{\kappa\lambda}\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\frac{\partial^2 E_4^{\alpha\beta(n)}}{\partial h_{\kappa\lambda,\sigma}\partial h_{\mu\nu,\rho}}-\frac{1}{2}\frac{\partial^2 E_4^{\mu\nu(n)}}{\partial h_{\kappa\lambda,\sigma}\partial h_{\alpha\beta,\rho}}\right),
+\end{equation}
+And for \(n=1\), we use the integral \eqref{n=1int}:
+\begin{equation}
+\Psi^{\mu\nu\rho\sigma(1)}=\intop_0^1d\lambda\sum_i\phi_ih_{\alpha\beta}\left(\frac{\partial^2 E'^{\alpha\beta(1)}_4}{\partial\phi'_i\partial h_{\mu\nu,\rho\sigma}}-\frac{1}{2}\frac{\partial^2 E'^{\alpha\beta(1)}_4}{\partial\phi'_{i,\sigma} \partial h_{\mu\nu,\rho}}-\frac{1}{2}\frac{\partial^2 E'^{\mu\nu(1)}_4}{\partial\phi'_{i,\sigma} \partial h_{\alpha\beta,\rho}}\right),
+\end{equation}
+where we define \(E'^{\mu\nu(1)}_4\) by substituting \(\phi'_i(\lambda)\) in place of \(\phi_i\) for all the matter fields (simultaneously) where they appear in \(E^{\mu\nu(1)}_4\). After taking the partial derivatives of \(E'^{\mu\nu(n)}_4\) by \(\phi'_i\) and its derivatives, we evaluate \(\phi'_i(\lambda)=\lambda\phi_i\) and then integrate.
+
+For \(n=0\), any superpotential \(\Psi^{\mu\nu\rho\sigma(0)}\) (with the required symmetries, and depending on the matter fields without derivatives) can be added without affecting the Helmholtz conditions. However, the identically conserved \(\Delta^{\mu\nu(0)}\) will then physically modify \(\kappa T_M^{\mu\nu}\) in the linear theory, so this is a change in the theory rather than a completion. It corresponds to a nonminimal matter-curvature coupling.
+
+We add \(\Delta^{\mu\nu(n)}\) to the equation to get the final contribution to this order:
+\begin{equation} 
+E^{\mu\nu(n)}= E_4^{\mu\nu(n)}+\Psi^{\mu\nu\rho\sigma}{}_{,\rho\sigma}^{(n)}.
+\end{equation}
+As we have shown, if there is any valid continuation for the bootstrap, then this \(\Delta^{\mu\nu(n)}\) will indeed be identically conserved, and \(E^{\mu\nu(n)}\) will indeed satisfy all the Helmholtz conditions. 
+\item Now we close the loop by computng the next order in the Lagrangian: 
+\begin{equation}
+\mathcal{L}^{(n+1)}=\frac{1}{n+1}E^{\mu\nu(n)}h_{\mu\nu} +b.t.,
+\end{equation} 
+where \(b.t.\) indicates boundary terms that we use to remove all second derivatives of the fields, using integration by parts. This is always possible, since there are only two derivatives. Thus, each term involving second derivatives has the form \( \varphi_{,\mu\nu}F\), where \(\varphi\) is an elementary field and \(F\) is some function of fields without derivatives; and so we take \(\varphi_{,\mu\nu}F\rightarrow -\varphi_{,\mu}F_{,\nu} \) by adding the boundary term \(-\left(\varphi_{,\mu}F\right)_{,\nu}\).
+
+When \(n=0\), this gives us \(\mathcal{L}^{(1)}=\mathcal{L}_{int}^{(1)}=\kappa h_{\mu\nu}T_M^{\mu\nu}+\sum_ih_{\mu\nu}X'^{\mu\nu(0)}_{\phi_i}E_{\phi_i}^{(0)}+b.t.\). We see the original linear interaction, the (unobservable) matter EOM terms that we may have added to \(E^{\mu\nu(0)}\), and the boundary terms that may be needed if \(T_M^{\mu\nu}\) or the \(E_{\phi_i}^{(0)}\) bring in second derivatives. 
+When \(n=1\), we get the Fierz-Pauli kinetic Lagrangian \eqref{Lh2} from \(\mathcal{L}_{h}^{(2)}=h_{\mu\nu}W^{\mu\nu}+b.t.\), as well as a new interaction term \(\mathcal{L}_{int}^{(2)}\). The latter is the first higher-order correction to the linear theory, bootstrapped from the interaction \(\mathcal{L}_{int}^{(1)}\).
+\end{enumerate}
+
+\section{Discussion and Outlook}
+
+\AY{Yes. This should certainly be added.}
+
+
+% If you have acknowledgments, this puts in the proper section head.
+\begin{acknowledgments}
+% put your acknowledgments here.
+[can skip for now, but if keeping it then]
+This research received support through Schmidt Sciences, LLC.
+\end{acknowledgments}
+
+% Create the reference section using BibTeX:
+\bibliography{bootstrapping.bib}
+
+\end{document}
+%
+% ****** End of file apstemplate.tex ******
+

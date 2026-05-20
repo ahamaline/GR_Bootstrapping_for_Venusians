@@ -1,0 +1,171 @@
+M$ModelName = "GR";
+
+FeynmanGauge = True; 
+
+
+
+M$ClassesDescription = {
+T[1] == {
+    ClassName     -> h,
+    SelfConjugate -> True,
+    Mass             -> 0,
+    Width            -> 0
+  },
+
+
+S[11] == {
+    ClassName      -> phi,
+    SelfConjugate  -> True,
+    Mass             -> Mphi
+  }
+
+};
+
+
+(*kappa is \sqrt(8 pi G_Newton)*)
+
+M$Parameters = {
+epsi == {ParameterType    -> Internal},  (*just a temporary expansion parameter but FeynRules still wants to know about it*)
+kappa == {ParameterType    -> Internal},
+Lambda == {ParameterType    -> Internal},
+WCR2 == {ParameterType    -> Internal},
+WCRi2 == {ParameterType    -> Internal},
+Mphi == {ParameterType    -> Internal},
+lambda == {ParameterType    -> Internal},
+WCDDp2 == {ParameterType    -> Internal},
+WCDp4 == {ParameterType    -> Internal},
+WCp6 == {ParameterType    -> Internal},
+xi =={ParameterType    -> Internal}
+};
+
+
+(* Rules to linearize del, uncomment these to run outside FeynRules*)
+del[series_SeriesData, b_] := Module[{var, cent, list, nmi, nma, denom},
+    {var, cent, list, nmi, nma, denom} =  List @@ series;    (*destructure the SeriesData*)
+    SeriesData[var, cent, del[#, b] & /@ list, nmi, nma, denom]];
+(*del[a_Plus,b_] := del[#,b] & /@ a;*)
+(*del[0,b_] := 0;*)
+(*del[kappa a_,b_] := kappa del[a,b];*)
+(*del[kappa^n_ a_,b_] := kappa^n del[a,b];*)
+(*del[epsi a_, b_] := epsi del[a, b];*)
+(*del[epsi^n_ a_, b_] := epsi^n del[a, b];*)
+
+(*Functions of h*)
+
+(*Traces of powers:Tt[n] means TR(h^n)*)
+Tt[1] := Module[{ii},
+    h[ii,ii]];
+Tt[2] := Module[{ii,jj},
+    h[ii,jj] h[jj,ii]];
+Tt[3] := Module[{ii,jj,kk},
+    h[ii,jj] h[jj,kk] h[kk,ii]];
+Tt[4] := Module[{ii,jj,kk,ll},
+    h[ii,jj] h[jj,kk] h[kk,ll] h[ll,ii]];
+
+(*Initially we name the traces TT[n], then this function replaces them at the end by calling the Tt[n]. We do this so that each power of Tt[n] gets its own internal indices - not (h[i,j] h[j,i])^2 which would make i and j each appear four times*)
+RepT[exp_] := exp //.
+    TT[i_]^n_ :> Nest[Times[Tt[i],#]&,1,n] //.
+    TT[i_] :> Tt[i];
+
+(*Function to matrix multiply A by h from the left, creating a dummy index. Must input the index a to contract*) 
+hdot[A_,a_] := Module[{ii},
+    h[a,ii] (A /. M_[a,b_] -> M[ii,b])];
+
+(*Initially we write functions of the matrix h as power series in a symbol x, times mat[a,b,x] as a label to store its external indices. Then this function replaces them*) 
+RepMat[exp_] := exp //. 
+    {mat[a_,b_,x_] x_^n_ :> Nest[hdot[#, a] &, h[a, b], n - 1]} //.
+    {mat[a_,b_,x_] x_ :> h[a,b]} //.
+    {mat[a_,b_,x_] :> ME[a,b]};
+
+(*Determinant: |g|=|I+2 kappa h^mu_nu| in 4 dimensions. Can be computed for higher dimensions by Taylor expanding det(g)=exp(Tr(log(g))). For any given dimension d, the terms above order d in kappa equal zero by the Cayley Hamilton theorem*)
+detg = (1 
+    + (2 kappa) TT[1]
+    + (2 kappa)^2 (1/2 TT[1]^2
+        - 1/2 TT[2])
+    + (2 kappa)^3 (1/6 TT[1]^3
+        - 1/2 TT[1] TT[2]
+        + 1/3 TT[3])
+    + (2 kappa)^4 (1/24 TT[1]^4
+        - 1/4 TT[1]^2 TT[2]
+        + 1/3 TT[1] TT[3]
+        + 1/8 TT[2]^2 
+        - 1/4 TT[4]));
+
+(*Square root of detg, to order n in kappa*)
+sqrg[n_] := sqrg[n] = Sqrt[Series[detg, {kappa, 0, n}]] // RepT;
+
+(*Inverse metric. The x is used to keep track of powers of h, with a differnt letter for each expansion*)
+ginv[a_, b_, x_, n_] := 
+  Series[mat[a, b, x]/(1 + 2 kappa x), {kappa, 0, n}];
+
+(*Christoffel symbol. The ginv only needs up to order n-1 because the derivatives are order 1*)
+chris[a_, b_, c_, n_] := 
+  Module[{ii, x}, 
+   1/2 ginv[a, ii, x, 
+     n - 1] (del[(2 kappa) h[ii, b], c] + del[(2 kappa) h[c, ii], b] -
+       del[(2 kappa) h[b, c], ii])];
+
+(*Riemann tensor. The terms quadratic in chris only need it to order n-1 because tho other chris is at least order 1*)
+riemann[a_, b_, c_, d_, n_] := 
+  Module[{ii}, 
+   del[chris[a, b, d, n]//RepMat, c] - 
+    del[chris[a, b, c, n]//RepMat, d] + 
+    chris[a, ii, c, n - 1] Normal[chris[ii, d, b, n - 1]] - 
+    chris[a, ii, d, n - 1] Normal[chris[ii, c, b, n - 1]]];
+
+(*Ricci scalar*)
+ricci[n_] := 
+  Module[{ii, jj, kk, x}, 
+   Normal[ginv[jj, kk, x, n - 1]] riemann[ii, jj, ii, kk, n]];
+
+
+
+
+
+(*Lagrangian*)
+
+Lscalar[n_] := 
+  Normal[Block[{a, b, c, d, e, f, x, y}, 
+       sqrg[n] (1/2 ginv[a, b, x, n] del[phi, a] del[phi, b]
+           - 1/2 Mphi^2 phi^2)]] //
+  RepMat;
+
+Lphi4[n_] := 
+  Normal[Block[{a, b, x}, 
+      sqrg [n] (-1/24 lambda phi^4 )]] //
+  RepMat;
+
+(*nonminimal matter-curvature interaction*)
+Lxi[n_] := 
+  xi Normal[Normal[sqrg[n - 1]] 
+      * ricci[n] phi^2] // 
+  RepMat;
+
+(*Einstein Hilbert Lagrangian to order n in kappa (order n+2 in h).*)
+LEH[n_] := 
+  Normal[-1/2 kappa^(-2) Normal[sqrg[n + 1]] 
+      *ricci[n + 2]] //
+  RepMat;
+
+(*Ricci scalar squared*)
+LR2[n_] := 
+  WCR2 Normal[Normal[sqrg[n - 2]] 
+      * Normal[ricci[n - 1]]
+      * ricci[n - 1]] //
+  RepMat;
+
+(*Ricci tensor squared*)
+LRi2[n_] := 
+  WCRi2 Normal[Block[{a, b, c, d, e, f, x, y}, 
+      Normal[sqrg[n - 2] ginv[a, c, x, n - 2] ginv[b, d, y, n - 2]]
+      * Normal[riemann[e, a, e, b, n - 1]]] 
+      * riemann[f, c, f, d, n - 1]] //
+  RepMat;
+
+(*Cosmological constant term*)
+Lcc[n_] := Normal[-Lambda kappa^(-2) sqrg[n + 2]];
+
+
+
+
+Ltot := LEH[3] + Lscalar[5] + Lphi4[5];
