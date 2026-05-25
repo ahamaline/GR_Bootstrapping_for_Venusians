@@ -289,6 +289,13 @@ class BootstrapState:
             return S.Zero
         L_raw = Rational(1, n + 1) * E * h(-self.mu_E, -self.nu_E)
         if isinstance(L_raw, TensExpr):
+            # .expand() to distribute Rational * TensAdd * Tensor — without it,
+            # sympy can leave L_raw as a TensMul wrapping a TensAdd, and
+            # remove_second_derivatives (which uses _decompose_tensmul) would
+            # silently skip the wrapped TensAdd's terms. Same dropped-TensAdd
+            # footgun as in compute_superpotential_n1 (see
+            # project-decompose-tensmul-tensadd-pitfall memory).
+            L_raw = L_raw.expand()
             L_raw = canon(L_raw)
         return remove_second_derivatives(L_raw)
 

@@ -81,6 +81,30 @@ def inverse_metric_to_order(n, mu, nu):
 
 
 # ---------------------------------------------------------------------------
+# Downstairs metric expansion: g_{mu nu} = eta_{mu nu} + 2*kappa*h_{mu nu}
+# ---------------------------------------------------------------------------
+
+def metric_order(n, mu, nu):
+    """Compute g_{mu nu} at order n in h.
+
+    g_{mu nu} = eta_{mu nu} + 2*kappa*h_{mu nu}, so only orders 0 and 1 are
+    nonzero. Used when matter_lagrangian_order encounters a metric factor
+    with both indices DOWN (originally an eta_{mu nu} for lowering an
+    upstairs field).
+
+    Args:
+        n: order in h.
+        mu, nu: tensor indices (sign-preserving — pass them in whatever sign
+            they have in the original factor).
+    """
+    if n == 0:
+        return metric(mu, nu)
+    if n == 1:
+        return 2 * kappa * h(mu, nu)
+    return S.Zero
+
+
+# ---------------------------------------------------------------------------
 # Christoffel symbols
 # ---------------------------------------------------------------------------
 
@@ -310,18 +334,26 @@ def matter_lagrangian_order(L_M, n):
     """Compute the order-n part of √|g| L̃_M.
 
     L_M is a matter Lagrangian using η-contractions on the matter fields
-    (e.g. for a scalar: L_M = -1/2 ∂φ·∂φ). L̃_M is the covariantized form:
-    every η^{μν} factor is promoted to g^{μν}. (For scalar fields, partial
-    derivatives are already tensorial, so this is the only change. Vector
-    or higher-rank matter fields would also need Christoffel corrections
-    on their covariant derivatives — currently NOT handled here; a runtime
-    check below traps that case.)
+    (e.g. for a scalar: L_M = -1/2 ∂φ·∂φ). L̃_M is the covariantized form
+    obtained by:
+      (a) η^{μν} → g^{μν}    and    η_{μν} → g_{μν}    (metric promotion)
+      (b) ∂_ρ V^σ → ∇_ρ V^σ = ∂_ρ V^σ + Γ^σ_{ρτ} V^τ   (only for matter
+          fields whose natural field-index position is 'up', i.e. registered
+          via register_upstairs_vector_field) USER COMMENT: In principle it would be for all vector and tensor fields, EM is just an exception because F is an exterior derivative of A. 
+      (c) overall √|g| volume factor
 
-    The expansion is:
-        √|g| L̃_M = (√|g|)(g^{μν} factors of L_M expanded in h)
-    For an L_M with M implicit η-contractions, the order-n piece is a sum
-    over compositions n = k_0 + k_1 + ... + k_M, where k_0 is the order of
-    √|g| and k_i is the order of the i-th metric factor.
+    For scalar fields and for gauge-invariant vector matter (e.g. EM,
+    where Γ cancels in the antisymmetric F_{μν} combination), the
+    Christoffel correction (b) is either trivially zero or auto-cancels in
+    the algebraic simplification; (a) is sufficient. For an upstairs vector
+    V^μ used outside an antisymmetric combination (e.g. in V^μ V_μ or via
+    explicit (∇V) factors), (b) IS needed and is applied here. USER COMMENT: (b) is needed even in an assymmetric combination!  
+
+    The order-n piece sums over compositions n = k_sqrt + Σ k_metric + Σ k_dV
+    where each metric factor and each upstairs-dV factor independently picks
+    an h-order to contribute. Metric factors expand via inverse_metric_order
+    (up-up) or metric_order (down-down); upstairs-dV factors contribute the
+    raw ∂V at k=0 or the order-k Christoffel correction Γ^σ_{ρτ} V^τ at k≥1.
 
     Args:
         L_M: matter Lagrangian (scalar, using registered matter field heads).
@@ -335,46 +367,23 @@ def matter_lagrangian_order(L_M, n):
         _decompose_tensmul, _decompose_tensadd, _get_component, _get_indices,
         _sum_terms,
     )
-    from bootstrap.tensor_algebra import _matter_fields, _JET_HIERARCHY
+    from bootstrap.tensor_algebra import (
+        _matter_fields, _JET_HIERARCHY, NATURAL_POSITIONS,
+    )
 
     if L_M == S.Zero:
         return S.Zero
     if n < 0:
         return S.Zero
 
-    # Guard against unsupported matter field types: this implementation
-    # assumes covariant derivatives = partial derivatives, which only holds
-    # for scalar fields. If any non-scalar matter field's derivatives appear
-    # in L_M, refuse the computation (Christoffel corrections needed).
-    for info in _matter_fields.values():
-        if info.get('rank', 0) != 0:
-            # Check whether this field's dfield/ddfield appears in L_M.
-            d_head = info.get('dfield')
-            dd_head = info.get('ddfield')
-            for head in (d_head, dd_head):
-                if head is None:
-                    continue
-                # Quick scan via _decompose_tensmul on each term.
-                terms = L_M.args if isinstance(L_M, TensAdd) else [L_M]
-                for t in terms:
-                    if isinstance(t, TensMul):
-                        _, factors = _decompose_tensmul(t)
-                        if any(_get_component(f) is head for f in factors):
-                            raise NotImplementedError(
-                                f"Non-scalar matter field {info.get('name')!r} "
-                                "appears with derivatives; matter_lagrangian_order "
-                                "currently handles only scalar matter (covariant "
-                                "derivative Christoffel corrections not implemented)."
-                            )
-                    elif isinstance(t, Tensor) and _get_component(t) is head:
-                        raise NotImplementedError(
-                            f"Non-scalar matter field {info.get('name')!r} "
-                            "appears with derivatives; matter_lagrangian_order "
-                            "currently handles only scalar matter."
-                        )
-
     if n == 0:
         return canon(L_M)
+
+    # Build a {dV_head: V_head} index for upstairs-vector d-field detection.
+    dfield_to_field = {}
+    for name, info in _matter_fields.items():
+        if info.get('index_pos') == 'up' and info.get('rank') == 1:
+            dfield_to_field[info['dfield']] = info['field']
 
     # Uncontract η factors so each implicit contraction becomes an explicit
     # metric(μ, ν) factor that we can then expand in h.
@@ -395,31 +404,89 @@ def matter_lagrangian_order(L_M, n):
             # k_metric_i = 0 / k_sqrt = n composition. Handle below.
             coeff, factors = term, []
 
-        metric_positions = [i for i, f in enumerate(factors)
-                            if _get_component(f) is metric]
-        non_metric_factors = [f for i, f in enumerate(factors)
-                              if i not in metric_positions]
-        M = len(metric_positions)
-        metric_indices = [_get_indices(factors[i]) for i in metric_positions]
+        # Classify factors into three buckets:
+        #   metric_factors:  list of (indices, 'up_up'|'down_down')
+        #   dV_factors:      list of (field_idx, deriv_idx, V_head)
+        #   kept_factors:    everything else, passed through unchanged
+        metric_factors = []
+        dV_factors = []
+        kept_factors = []
+        for f in factors:
+            comp = _get_component(f)
+            if comp is metric:
+                inds = _get_indices(f)
+                if all(idx.is_up for idx in inds):
+                    metric_factors.append((inds, 'up_up'))
+                elif all(not idx.is_up for idx in inds):
+                    metric_factors.append((inds, 'down_down'))
+                else:
+                    # mixed → Kronecker delta; passes through unchanged.
+                    kept_factors.append(f)
+                continue
+            if comp in dfield_to_field:
+                inds = _get_indices(f)
+                # Natural positions for an upstairs-vector d-field are
+                # ['up', 'down']: index 0 is the field index, index 1 the
+                # derivative index. After uncontract_metrics the factor is
+                # always in this natural form.
+                if NATURAL_POSITIONS.get(comp) == ['up', 'down']:
+                    dV_factors.append((inds[0], inds[1], dfield_to_field[comp]))
+                    continue
+            kept_factors.append(f)
 
-        # Sum over compositions (k_0, k_1, ..., k_M) with sum = n.
-        for ks in _compositions(n, M + 1):
+        M = len(metric_factors)
+        D = len(dV_factors)
+
+        # Sum over compositions (k_sqrt, k_metrics..., k_dVs...) with total n.
+        for ks in _compositions(n, M + D + 1):
             k_sqrt = ks[0]
-            k_metrics = ks[1:]
+            k_metrics = ks[1:1 + M]
+            k_dVs = ks[1 + M:]
             sg = sqrt_det_g_order(k_sqrt)
             if sg == S.Zero and k_sqrt > 0:
                 continue
-            # Build the metric-expansion product.
             piece = coeff * sg
-            for (mi, ni), k_i in zip(metric_indices, k_metrics):
-                ginv_part = inverse_metric_order(k_i, mi, ni)
-                if ginv_part == S.Zero:
-                    piece = S.Zero
+            # Metric expansion.
+            zeroed = False
+            for ((mi, ni), kind), k_i in zip(metric_factors, k_metrics):
+                if kind == 'up_up':
+                    g_part = inverse_metric_order(k_i, mi, ni)
+                else:
+                    g_part = metric_order(k_i, mi, ni)
+                if g_part == S.Zero:
+                    zeroed = True
                     break
-                piece = piece * ginv_part
-            if piece == S.Zero:
+                piece = piece * g_part
+            if zeroed:
                 continue
-            for f in non_metric_factors:
+            # Upstairs-dV expansion: raw partial at k=0, Christoffel piece at k≥1.
+            for (field_idx, deriv_idx, V_head), k_dV in zip(dV_factors, k_dVs):
+                if k_dV == 0:
+                    # Original ∂_ρ V^σ piece.
+                    dV_head = None
+                    for dfh, vh in dfield_to_field.items():
+                        if vh is V_head:
+                            dV_head = dfh
+                            break
+                    dV_part = dV_head(field_idx, deriv_idx)
+                else:
+                    # Christoffel correction at order k_dV:
+                    #   +Γ^{field}_{deriv τ} V^τ
+                    # christoffel_order expects: (k, lambda_up, mu_down, nu_down).
+                    # field_idx is naturally up, deriv_idx is naturally down.
+                    tau, = fresh_indices(1)
+                    Gamma_k = christoffel_order(k_dV, field_idx, deriv_idx, -tau)
+                    if Gamma_k == S.Zero:
+                        dV_part = S.Zero
+                    else:
+                        dV_part = Gamma_k * V_head(tau)
+                if dV_part == S.Zero:
+                    zeroed = True
+                    break
+                piece = piece * dV_part
+            if zeroed:
+                continue
+            for f in kept_factors:
                 piece = piece * f
             out_terms.append(piece)
 

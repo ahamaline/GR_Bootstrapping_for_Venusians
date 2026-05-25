@@ -105,6 +105,19 @@ _sym_dddh = TensorSymmetry.direct_product(2, 3)
 dddh = TensorHead('dddh', [Lorentz]*5, _sym_dddh)
 
 # ---------------------------------------------------------------------------
+# Natural index positions
+# ---------------------------------------------------------------------------
+# 'down' = naturally covariant (lower), 'up' = naturally contravariant (upper).
+# Used by covariantization (uncontract_metrics, replace_metric_with_g) and by
+# the order-in-h expansion (matter_lagrangian_order) to decide between
+# raising/lowering insertions and between g^{mu nu}/g_{mu nu} expansions.
+NATURAL_POSITIONS = {
+    h: ['down', 'down'],
+    dh: ['down', 'down', 'down'],
+    ddh: ['down', 'down', 'down', 'down'],
+}
+
+# ---------------------------------------------------------------------------
 # Registry of jet variable relationships
 # ---------------------------------------------------------------------------
 # Maps each TensorHead to its "parent" (one fewer derivative) and "child"
@@ -128,26 +141,34 @@ _matter_fields = {}  # name -> dict with keys: field, dfield, ddfield, rank, ...
 
 def register_scalar_field(name):
     """Register a scalar matter field (rank 0).
-    
+
     Creates TensorHeads for the field, its first and second derivatives.
+    Also populates NATURAL_POSITIONS for the d- and dd-heads.
     Returns (field, dfield, ddfield).
     """
     phi = TensorHead(name, [], TensorSymmetry.fully_symmetric(0))
     dphi = TensorHead(f'd{name}', [Lorentz], TensorSymmetry.no_symmetry(1))
     ddphi = TensorHead(f'dd{name}', [Lorentz, Lorentz], _sym2)
-    
+
     _JET_HIERARCHY[phi] = {'child': dphi, 'n_field_indices': 0}
     _JET_HIERARCHY[dphi] = {'parent': phi, 'child': ddphi, 'n_field_indices': 0}
     _JET_HIERARCHY[ddphi] = {'parent': dphi, 'n_field_indices': 0}
-    
+
+    NATURAL_POSITIONS[dphi] = ['down']
+    NATURAL_POSITIONS[ddphi] = ['down', 'down']
+
     info = {'field': phi, 'dfield': dphi, 'ddfield': ddphi, 'rank': 0, 'name': name}
     _matter_fields[name] = info
     return phi, dphi, ddphi
 
 def register_vector_field(name):
-    """Register a vector matter field (rank 1).
-    
+    """Register a vector matter field (rank 1) with a naturally DOWN field index.
+
+    The field index is conventionally covariant (A_μ). Use
+    register_upstairs_vector_field for the V^μ convention.
+
     Creates TensorHeads for the field, its first and second derivatives.
+    Also populates NATURAL_POSITIONS so callers don't need to set it manually.
     Returns (field, dfield, ddfield).
     """
     A = TensorHead(name, [Lorentz], TensorSymmetry.no_symmetry(1))
@@ -156,14 +177,52 @@ def register_vector_field(name):
     # direct_product(1, 2) = single index + symmetric pair
     _sym_vec_dd = TensorSymmetry.direct_product(1, 2)
     ddA = TensorHead(f'dd{name}', [Lorentz, Lorentz, Lorentz], _sym_vec_dd)
-    
+
     _JET_HIERARCHY[A] = {'child': dA, 'n_field_indices': 1}
     _JET_HIERARCHY[dA] = {'parent': A, 'child': ddA, 'n_field_indices': 1}
     _JET_HIERARCHY[ddA] = {'parent': dA, 'n_field_indices': 1}
-    
-    info = {'field': A, 'dfield': dA, 'ddfield': ddA, 'rank': 1, 'name': name}
+
+    NATURAL_POSITIONS[A] = ['down']
+    NATURAL_POSITIONS[dA] = ['down', 'down']
+    NATURAL_POSITIONS[ddA] = ['down', 'down', 'down']
+
+    info = {'field': A, 'dfield': dA, 'ddfield': ddA, 'rank': 1, 'name': name,
+            'index_pos': 'down'}
     _matter_fields[name] = info
     return A, dA, ddA
+
+
+def register_upstairs_vector_field(name):
+    """Register a vector matter field with a naturally UP field index (V^mu).
+
+    Mirrors register_vector_field but with NATURAL_POSITIONS set to
+    ['up'] for V, ['up', 'down'] for dV (field up, derivative down), and
+    ['up', 'down', 'down'] for ddV.
+
+    The dV convention is dV(field_index, deriv_index) = ∂_{deriv} V^{field}.
+    Covariantization of dV introduces a +Γ^{field}_{deriv σ} V^σ Christoffel
+    correction (opposite sign from the downstairs case); this is wired up in
+    matter_lagrangian_order and _christoffel_via_substitution.
+
+    Returns (field, dfield, ddfield).
+    """
+    V = TensorHead(name, [Lorentz], TensorSymmetry.no_symmetry(1))
+    dV = TensorHead(f'd{name}', [Lorentz, Lorentz], TensorSymmetry.no_symmetry(2))
+    _sym_vec_dd = TensorSymmetry.direct_product(1, 2)
+    ddV = TensorHead(f'dd{name}', [Lorentz, Lorentz, Lorentz], _sym_vec_dd)
+
+    _JET_HIERARCHY[V] = {'child': dV, 'n_field_indices': 1}
+    _JET_HIERARCHY[dV] = {'parent': V, 'child': ddV, 'n_field_indices': 1}
+    _JET_HIERARCHY[ddV] = {'parent': dV, 'n_field_indices': 1}
+
+    NATURAL_POSITIONS[V] = ['up']
+    NATURAL_POSITIONS[dV] = ['up', 'down']
+    NATURAL_POSITIONS[ddV] = ['up', 'down', 'down']
+
+    info = {'field': V, 'dfield': dV, 'ddfield': ddV, 'rank': 1, 'name': name,
+            'index_pos': 'up'}
+    _matter_fields[name] = info
+    return V, dV, ddV
 
 def get_jet_hierarchy():
     """Return the full jet hierarchy dict (read-only view)."""

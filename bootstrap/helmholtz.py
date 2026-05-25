@@ -23,6 +23,7 @@ from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 from bootstrap.tensor_algebra import (
     Lorentz, metric, h, dh, ddh,
     fresh_indices, canon, _JET_HIERARCHY, _matter_fields,
+    NATURAL_POSITIONS,
 )
 from bootstrap.jet import (
     jet_derivative, _sum_terms, _decompose_tensmul,
@@ -141,10 +142,12 @@ def compute_superpotential_n1(M_expr, M_indices, matter_field_heads=None):
     Args:
         M_expr: tensor expression for M^{mu nu} at order n=1.
         M_indices: (mu_M, nu_M) tuple of M_expr's free indices.
-        matter_field_heads: dict {name: (phi, dphi, ddphi)}. If None,
-            uses the global _matter_fields registry. For scalar matter only;
-            non-scalar matter raises NotImplementedError because the
-            derivative-pattern in eq. 23 assumes scalar dphi/ddphi.
+        matter_field_heads: dict {name: (field, dfield, ddfield)}. If None,
+            uses the global _matter_fields registry. Handles BOTH scalar
+            and non-scalar (e.g. vector) matter — for a rank-r field A_α₁…α_r,
+            the formula naturally generalizes: the derivative ∂/∂A^α₁…α_r
+            returns those indices as free, and the "velocity" factor A_α₁…α_r
+            (indices lowered) contracts them.
 
     Returns:
         (Psi, psi_indices) where psi_indices = (mu_f, nu_f, rho_f, sigma_f).
@@ -153,12 +156,6 @@ def compute_superpotential_n1(M_expr, M_indices, matter_field_heads=None):
     if matter_field_heads is None:
         matter_field_heads = {}
         for name, info in _matter_fields.items():
-            if info.get('rank', 0) != 0:
-                raise NotImplementedError(
-                    f"Matter field {name!r} is not scalar (rank "
-                    f"{info.get('rank')}); compute_superpotential_n1 currently "
-                    "supports scalar matter only."
-                )
             matter_field_heads[name] = (info['field'], info['dfield'], info['ddfield'])
 
     if not matter_field_heads:
@@ -180,33 +177,79 @@ def compute_superpotential_n1(M_expr, M_indices, matter_field_heads=None):
     )
 
     matter_heads = set()
-    for (phi_h, dphi_h, ddphi_h) in matter_field_heads.values():
-        matter_heads.update([phi_h, dphi_h, ddphi_h])
+    for (field_h, dfield_h, ddfield_h) in matter_field_heads.values():
+        matter_heads.update([field_h, dfield_h, ddfield_h])
 
     bracket_terms = []
-    for name, (phi_h, dphi_h, ddphi_h) in matter_field_heads.items():
-        # Term A: d^2 M^{alpha beta} / (d phi  d h_{mu nu, rho sigma})
+    for name, (field_h, dfield_h, ddfield_h) in matter_field_heads.items():
+        # Field's own tensor indices (empty for scalar, one for vector, etc.).
+        n_field_idx = _matter_fields[name].get('rank', 0)
+
+        # For jet_derivative to produce clean Kronecker deltas (rather than
+        # raising η factors), the wrt_indices must have the OPPOSITE sign of
+        # the field's natural index positions. Downstairs A (natural DOWN):
+        # pass UP. Upstairs V (natural UP): pass DOWN. The velocity factor
+        # below uses the opposite sign again, putting V back into its natural
+        # form (V^α for upstairs V, A_α for downstairs A) so the contraction
+        # with the jet result is clean.
+        field_naturals = NATURAL_POSITIONS.get(field_h, ['down'] * n_field_idx)
+        if n_field_idx > 0:
+            raw_field_indices = list(fresh_indices(n_field_idx))
+            field_indices = [(-r if nat == 'up' else r)
+                             for r, nat in zip(raw_field_indices, field_naturals)]
+        else:
+            field_indices = []
+
+        # Term A: d^2 M^{alpha beta} / (d field^{α…}  d h_{mu nu, rho sigma})
         dM_dddh = jet_derivative(M_ab, ddh, [mu_f, nu_f, rho_f, sigma_f])
-        d2M_A = jet_derivative(dM_dddh, phi_h, [])
+        d2M_A = jet_derivative(dM_dddh, field_h, field_indices)
 
-        # Term B: d^2 M^{mu nu} / (d phi_{,sigma}  d h_{alpha beta, rho})
+        # Term B: d^2 M^{mu nu} / (d (dfield)^{α…,sigma}  d h_{alpha beta, rho})
         dM_dh_B = jet_derivative(M_mn, dh, [alpha, beta, rho_f])
-        d2M_B = jet_derivative(dM_dh_B, dphi_h, [sigma_f])
+        d2M_B = jet_derivative(dM_dh_B, dfield_h, field_indices + [sigma_f])
 
-        # Term C: d^2 M^{alpha beta} / (d phi_{,sigma}  d h_{mu nu, rho})
+        # Term C: d^2 M^{alpha beta} / (d (dfield)^{α…,sigma}  d h_{mu nu, rho})
         dM_dh_C = jet_derivative(M_ab, dh, [mu_f, nu_f, rho_f])
-        d2M_C = jet_derivative(dM_dh_C, dphi_h, [sigma_f])
+        d2M_C = jet_derivative(dM_dh_C, dfield_h, field_indices + [sigma_f])
 
         bracket = d2M_A - Rational(1, 2) * d2M_B - Rational(1, 2) * d2M_C
         if bracket == S.Zero:
             continue
 
-        # Multiply by h_{alpha beta} (contraction with M^{alpha beta}) and the
-        # matter field phi_i (the "velocity" along the linear path).
+        # Distribute Tensor * TensAdd here too: sympy will sometimes leave the
+        # bracket as a TensAdd whose top-level args are TensMul(Rational, TensAdd)
+        # — i.e. the Rational coefficient never distributed across the inner
+        # TensAdd. _scale_matter_fields uses _decompose_tensmul which collects
+        # only Tensor/TensMul args, silently dropping the TensAdd. That hides
+        # every matter-field factor inside it from the lambda-count, giving the
+        # wrong integral coefficient and a Ψ that violates cyclic symmetry.
+        if isinstance(bracket, TensExpr):
+            bracket = bracket.expand()
+
+        # Apply path substitution phi' = lambda phi to all matter fields in
+        # bracket (paper: the derivatives are evaluated at phi' = lambda*phi).
         scaled = _scale_matter_fields(bracket, lam, matter_heads)
-        # The pulled-in phi_i factor itself needs scaling too (it'll get a lam).
-        phi_factor = lam * phi_h()
-        contracted = phi_factor * h(-alpha, -beta) * scaled
+
+        # Velocity factor — dphi'_i/dlambda for the linear path phi'=lambda*phi
+        # is just phi_i itself (NO lambda, despite the bracket's lambdas).
+        # field_h is invoked with indices OPPOSITE in sign to field_indices, so
+        # the result has indices in the field's natural positions — and the
+        # contraction with the bracket's anti-natural free indices is a clean
+        # delta-pair (one up vs one down on every paired slot).
+        if n_field_idx == 0:
+            velocity = field_h()
+        else:
+            velocity = field_h(*[-i for i in field_indices])
+
+        contracted = velocity * h(-alpha, -beta) * scaled
+        # Distribute Tensor * TensAdd -> TensAdd of TensMuls. Without this,
+        # sympy can leave `contracted` as a TensMul whose args include the
+        # bracket TensAdd as a single factor; _decompose_tensmul (which
+        # collects only Tensor/TensMul args) would then silently drop the
+        # TensAdd and lose every free index it carried, collapsing Psi to a
+        # 3-index expression with phantom dummies.
+        if isinstance(contracted, TensExpr):
+            contracted = contracted.expand()
 
         # Integrate lambda over [0, 1] term-by-term on the coefficient.
         integrated = _integrate_lambda(contracted, lam)

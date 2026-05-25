@@ -115,11 +115,11 @@ def remove_second_derivatives(lagrangian, heads_to_process=None):
             if hasattr(head, 'name') and str(head.name).startswith('dd'):
                 if head != ddh and head not in heads_to_process:
                     heads_to_process.append(head)
-    
+
     result = lagrangian
     for dd_head in heads_to_process:
         result = _ibp_via_jet_deriv(result, dd_head)
-    
+
     return canon(result) if isinstance(result, TensExpr) else result
 
 
