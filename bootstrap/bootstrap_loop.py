@@ -33,7 +33,9 @@ from bootstrap.helmholtz import (
     superpotential_divergence, verify_psi_symmetries,
     compute_h2_violation,
 )
-from bootstrap.energy_momentum import hilbert_energy_momentum
+from bootstrap.energy_momentum import (
+    hilbert_energy_momentum, symmetrized_belinfante,
+)
 from bootstrap.covariant import einstein_hilbert_lagrangian_order, matter_lagrangian_order
 
 
@@ -78,8 +80,6 @@ class BootstrapState:
                  verbose=True):
         if em_procedure not in ('hilbert', 'belinfante'):
             raise ValueError(f"em_procedure must be 'hilbert' or 'belinfante', got {em_procedure!r}")
-        if em_procedure == 'belinfante':
-            raise NotImplementedError("Belinfante procedure not yet implemented")
 
         self.em_procedure = em_procedure
         self.verbose = verbose
@@ -180,6 +180,8 @@ class BootstrapState:
         if L_n != S.Zero:
             if self.em_procedure == 'hilbert':
                 T_mn, T_idx = hilbert_energy_momentum(L_n)
+            elif self.em_procedure == 'belinfante':
+                T_mn, T_idx = symmetrized_belinfante(L_n)
             else:
                 raise NotImplementedError(self.em_procedure)
             T_mn = _reindex_tensor(T_mn, T_idx, (self.mu_E, self.nu_E))

@@ -211,15 +211,20 @@ def replace_metric_with_ginv(expr):
 
 def hilbert_energy_momentum(L):
     """Compute T_H^{μν}[L] via the Hilbert procedure.
-    
+
     Args:
         L: a scalar Lagrangian (function of h, dh, and η)
-        
+
     Returns:
         (T_mn, (mu, nu)): the Hilbert tensor and its free indices
     """
     mu, nu = fresh_indices(2)
-    
+
+    # Distribute any TensMul-wrapped TensAdd in L (e.g. raw -1/4 * F * F with
+    # F a TensAdd) before walking factors via _decompose_tensmul.
+    if isinstance(L, TensExpr):
+        L = canon(L)
+
     # Step 1: Uncontract metrics to make η factors explicit
     L_unc = uncontract_metrics(L)
 
@@ -292,6 +297,279 @@ def hilbert_energy_momentum(L):
     T_mn = canon(T_mn) if isinstance(T_mn, TensExpr) else T_mn
 
     return T_mn, (mu, nu)
+
+
+# ========================================================================
+# Symmetrized Belinfante energy-momentum tensor (paper §2 alternative).
+# ========================================================================
+
+def canonical_noether_tensor(L):
+    """Compute the canonical Noether energy-momentum tensor T_can^{μν}.
+
+    Formula (Mostly Plus signature, consistent with the rest of the code):
+
+        T_can^{μν} = η^{μν} L − Σ_i ∂L/∂(∂_μ φ_i^{α…}) ∂^ν φ_i^{α…}
+
+    where the sum runs over all registered matter fields φ_i and any
+    tensor indices α… on φ_i are contracted. This is the overall-opposite
+    sign of the textbook formula `T = pi · ∂φ − η L`, which assumes the
+    Mostly Minus convention with δφ = +a^μ ∂_μ φ under translation.
+    Mostly Plus uses δφ = −a^μ ∂_μ φ, which flips the Noether current's
+    sign so the result matches T_Hilbert for scalar matter (where both
+    procedures must agree — scalar has no spin).
+
+    The result is NOT symmetric in (μν) for fields with nonzero spin
+    (vectors, spinors, …). Use `symmetrized_belinfante` to get the
+    explicitly-symmetric version the bootstrap expects.
+
+    For each rank-r matter field with derivative-head `dfield` and natural
+    index positions [pos_1, …, pos_r, pos_deriv]:
+      - wrt_indices for `jet_derivative` use the OPPOSITE sign of each
+        field's natural position, plus μ (up) for the derivative slot.
+        This produces clean Kronecker pairs (no raising/lowering η factors).
+      - The velocity factor `dfield(velocity_field_idx…, ν)` uses the
+        OPPOSITE sign of `field_wrt` on the field slots so the αs contract
+        cleanly with pi, and ν (up) on the derivative slot so we get the
+        raised form ∂^ν.
+
+    Returns:
+        (T_can, (mu, nu)): the tensor and its free indices.
+    """
+    from bootstrap.tensor_algebra import _matter_fields, dh as dh_head
+
+    # Distribute any TensMul-wrapped TensAdd in L (e.g. raw -1/4 * F * F with
+    # F a TensAdd) so jet_derivative's _decompose_tensmul sees flat factors.
+    if isinstance(L, TensExpr):
+        L = canon(L)
+
+    mu, nu = fresh_indices(2)
+    result = metric(mu, nu) * L
+
+    for name, info in _matter_fields.items():
+        dfield = info['dfield']
+        rank = info.get('rank', 0)
+        naturals = NATURAL_POSITIONS.get(dfield, ['down'] * (rank + 1))
+
+        if rank > 0:
+            raw_field = list(fresh_indices(rank))  # all up
+            field_wrt = [(-r if nat == 'up' else r)
+                         for r, nat in zip(raw_field, naturals[:rank])]
+        else:
+            field_wrt = []
+
+        wrt = field_wrt + [mu]
+        pi = jet_derivative(L, dfield, wrt)
+        if pi == S.Zero:
+            continue
+
+        if rank > 0:
+            velocity_field_idx = [-i for i in field_wrt]
+        else:
+            velocity_field_idx = []
+        velocity = dfield(*velocity_field_idx, nu)
+
+        result = result - pi * velocity
+
+    # Graviton h_{αβ} contributes to T_can too: -π^{αβ μ} × ∂^ν h_{αβ}.
+    # π wrt natural dh has wrt indices both up on the field slots (= raised),
+    # and the deriv slot also up; this matches the dh natural [down,down,down]
+    # with opposite-sign pattern. velocity dh(*opposite, ν) with ν up gives
+    # ∂^ν h_{αβ}.
+    alpha_h, beta_h = fresh_indices(2)
+    pi_h = jet_derivative(L, dh_head, [alpha_h, beta_h, mu])
+    if pi_h != S.Zero:
+        velocity_h = dh_head(-alpha_h, -beta_h, nu)
+        result = result - pi_h * velocity_h
+
+    if isinstance(result, TensExpr):
+        result = canon(result)
+    return result, (mu, nu)
+
+
+def _permute_indices(expr, src, dst):
+    """Permute the free indices of `expr` from tuple `src` to tuple `dst`.
+
+    src and dst are equal-length tuples of TensorIndex. Each src[k] gets
+    replaced by dst[k] (and -src[k] by -dst[k]) via a temporary-index dance
+    that's robust against name overlap between src and dst.
+    """
+    if expr == S.Zero:
+        return S.Zero
+    tmps = fresh_indices(len(src))
+    result = expr
+    # src -> tmp
+    pairs = []
+    for s, t in zip(src, tmps):
+        pairs.extend([(s, t), (-s, -t)])
+    result = result.substitute_indices(*pairs)
+    # tmp -> dst
+    pairs = []
+    for t, d in zip(tmps, dst):
+        pairs.extend([(t, d), (-t, -d)])
+    result = result.substitute_indices(*pairs)
+    return result
+
+
+def _spin_tensor_contribution(L, mu, nu, rho):
+    """Compute S^{ρμν} from the spin matrix of each registered matter field
+    PLUS the graviton field h_{αβ}.
+
+    Formula:
+
+        S^{ρμν} = − Σ_i  π^{ρ}_a [(Σ^{μν})^a_b] φ^b
+
+    With explicit spin matrices (computed from how each field transforms
+    under δφ^a = ½ ω^{μν} (Σ_{μν})^a_b φ^b):
+
+      - Scalar (rank 0): Σ = 0, no contribution.
+      - Downstairs vector A_α: (Σ^{μν})_α^β = δ^μ_α η^{νβ} − δ^ν_α η^{μβ}
+        ⇒ S^{ρμν}_A = −π^{ρμ} A^ν + π^{ρν} A^μ.
+      - Upstairs vector V^α: (Σ^{μν})^α_β = η^{μα} δ^ν_β − η^{να} δ^μ_β
+        ⇒ S^{ρμν}_V = −π^{ρμ} V^ν + π^{ρν} V^μ (same form as downstairs A,
+        which makes sense: raising a field index swaps the generator by a
+        sign, but the spin tensor S inherits the original A-formula
+        STRUCTURE rather than flipping). Hand-checked against a Lorentz
+        boost on V^μ: only this sign gives δV^0 = −V^1 (the correct
+        infinitesimal-boost transformation).
+      - Symmetric tensor h_{αβ}: tensor product of two downstairs-vector
+        generators (one for each h-index). After using h's (αβ)-symmetry,
+        the two α-contractions and two β-contractions merge into a single
+        factor of 2: S^{ρμν}_h = 2(−π^{ρμβ} h^ν_β + π^{ρνβ} h^μ_β),
+        where π^{ρμβ} = ∂L/∂(∂_ρ h_{μβ}).
+
+    Returns S^{ρμν} as a TensExpr with free indices (rho, mu, nu) all up.
+    """
+    from bootstrap.tensor_algebra import _matter_fields, h as h_head, dh as dh_head
+
+    S_total = S.Zero
+
+    # --- (1) Matter contributions: rank-1 (A or V) ---
+    for name, info in _matter_fields.items():
+        rank = info.get('rank', 0)
+        if rank != 1:
+            continue
+        dfield = info['dfield']
+        field = info['field']
+        naturals = NATURAL_POSITIONS.get(dfield, ['down', 'down'])
+
+        if naturals[0] == 'down':
+            # π_code[field=μ, deriv=ρ] via jet_derivative wrt dA at [μ, ρ] up.
+            pi_mu = jet_derivative(L, dfield, [mu, rho])
+            pi_nu = jet_derivative(L, dfield, [nu, rho])
+            S_f = -pi_mu * field(nu) + pi_nu * field(mu)
+        elif naturals[0] == 'up':
+            # Upstairs V: S^{ρμν}_V = −π^{ρμ} V^ν + π^{ρν} V^μ.
+            # π^{ρμ} = π^{ρ}_α × η^{μα} = metric(μ, α) × π_raw[-α, ρ].
+            alpha_mu, = fresh_indices(1)
+            alpha_nu, = fresh_indices(1)
+            pi_mu_raw = jet_derivative(L, dfield, [-alpha_mu, rho])
+            pi_nu_raw = jet_derivative(L, dfield, [-alpha_nu, rho])
+            S_f = (-metric(mu, alpha_mu) * pi_mu_raw * field(nu)
+                   + metric(nu, alpha_nu) * pi_nu_raw * field(mu))
+        else:
+            continue
+        S_total = S_total + S_f
+
+    # --- (2) Graviton h contribution ---
+    # π^{ρμβ}_h = ∂L/∂(∂_ρ h_{μβ}) via jet_derivative wrt dh at [μ, β, ρ] up.
+    # h^ν_β = h(ν, −β) with ν up, β natural-down (i.e., raised first index).
+    beta_mu, = fresh_indices(1)
+    beta_nu, = fresh_indices(1)
+    pi_h_mu = jet_derivative(L, dh_head, [mu, beta_mu, rho])  # has free (mu, beta_mu, rho)
+    pi_h_nu = jet_derivative(L, dh_head, [nu, beta_nu, rho])  # has free (nu, beta_nu, rho)
+    if pi_h_mu != S.Zero or pi_h_nu != S.Zero:
+        S_h = 2 * (-pi_h_mu * h_head(nu, -beta_mu)
+                   + pi_h_nu * h_head(mu, -beta_nu))
+        S_total = S_total + S_h
+
+    if isinstance(S_total, TensExpr):
+        S_total = canon(S_total)
+    return S_total
+
+
+def _belinfante_improvement(L, mu, nu):
+    """Compute ∂_ρ B^{ρμν} where B^{ρμν} = ½(S^{ρμν} + S^{νρμ} − S^{μνρ}).
+
+    Standard Belinfante–Rosenfeld combination of three permutations of the
+    spin tensor S. Antisymmetric in (ρμ) by construction, so the improvement
+    ∂_ρ B^{ρμν} is identically conserved in ν (∂_μ ∂_ρ B^{ρμν} ≡ 0). For EM,
+    hand verification gives ∂_ρ B = −½ (EOM^μ A^ν + EOM^ν A^μ) after
+    (μν)-symmetrization with the canonical Noether — purely EOM-proportional,
+    matching the paper's claim.
+    """
+    from bootstrap.jet import total_derivative
+
+    if isinstance(L, TensExpr):
+        L = canon(L)
+
+    rho, = fresh_indices(1)
+    S_rmn = _spin_tensor_contribution(L, mu, nu, rho)
+    if S_rmn == S.Zero:
+        return S.Zero
+
+    # B^{ρμν} = ½(S^{ρμν} − S^{νρμ} + S^{μνρ}).
+    # Hand-verified for EM: with S^{ρμν}_A = −π^{ρμ}A^ν + π^{ρν}A^μ
+    # (= F^{ρμ}A^ν − F^{ρν}A^μ since π = −F), this combination collapses to
+    # B = F^{ρμ}A^ν, giving T_Bel − T_H = EOM^μ A^ν (pure EOM, no F·∂A residue).
+    # S^{νρμ}: src=(ρ, μ, ν), dst=(ν, ρ, μ).
+    S_nrm = _permute_indices(S_rmn, (rho, mu, nu), (nu, rho, mu))
+    # S^{μνρ}: src=(ρ, μ, ν), dst=(μ, ν, ρ).
+    S_mnr = _permute_indices(S_rmn, (rho, mu, nu), (mu, nu, rho))
+
+    B = Rational(1, 2) * (S_rmn - S_nrm + S_mnr)
+    if isinstance(B, TensExpr):
+        B = canon(B)
+
+    improvement = total_derivative(B, -rho)
+    if isinstance(improvement, TensExpr):
+        improvement = canon(improvement)
+    return improvement
+
+
+def symmetrized_belinfante(L):
+    """Compute the symmetrized Belinfante energy-momentum tensor T_SymBel^{μν}.
+
+    Three-step construction (paper §2 + standard Belinfante–Rosenfeld):
+
+        1. T_can = canonical Noether tensor (`canonical_noether_tensor`).
+        2. T_Bel = T_can + ∂_ρ B^{ρμν}, where B^{ρμν} is the Belinfante
+           improvement built from the spin tensor for each matter field
+           (`_belinfante_improvement`). For EM this brings T_Bel to T_H
+           modulo EOM-proportional terms.
+        3. T_SymBel = ½(T_Bel + T_Bel^T) — explicit (μν)-symmetrization,
+           per the paper's footnote: "We use an explicitly symmetrized
+           version of the tensor; the change amounts to adding an
+           antisymmetric term proportional to the equations of motion."
+           The bootstrap requires symmetric tensors (only those can be EL
+           derivatives by h_{μν}).
+
+    For scalar matter, T_can is already symmetric and the improvement is
+    zero, so T_SymBel = T_can = T_Hilbert. For vector matter (EM, Proca)
+    T_SymBel differs from T_Hilbert by EOM-proportional terms that the
+    bootstrap absorbs via the H2-EOM correction machinery (open-work
+    item 5).
+
+    Returns:
+        (T_SymBel, (mu, nu)): the symmetric tensor and its free indices.
+    """
+    T_can, (mu, nu) = canonical_noether_tensor(L)
+    if T_can == S.Zero:
+        return S.Zero, (mu, nu)
+
+    improvement = _belinfante_improvement(L, mu, nu)
+    T_Bel = T_can + improvement
+
+    # Swap μ ↔ ν via a temporary index pair.
+    tmp1, tmp2 = fresh_indices(2)
+    T_swap = T_Bel.substitute_indices(
+        (mu, tmp1), (-mu, -tmp1), (nu, tmp2), (-nu, -tmp2)
+    ).substitute_indices(
+        (tmp1, nu), (-tmp1, -nu), (tmp2, mu), (-tmp2, -mu)
+    )
+    T_sym = Rational(1, 2) * (T_Bel + T_swap)
+    if isinstance(T_sym, TensExpr):
+        T_sym = canon(T_sym)
+    return T_sym, (mu, nu)
 
 
 def _replace_g_with_metric(expr):
