@@ -31,6 +31,7 @@ from bootstrap.euler_lagrange import euler_lagrange, remove_second_derivatives
 from bootstrap.helmholtz import (
     compute_superpotential_n2, compute_superpotential_n1,
     superpotential_divergence, verify_psi_symmetries,
+    compute_h2_violation,
 )
 from bootstrap.energy_momentum import hilbert_energy_momentum
 from bootstrap.covariant import einstein_hilbert_lagrangian_order, matter_lagrangian_order
@@ -214,18 +215,38 @@ class BootstrapState:
     def _step3_mandatory_eom(self, E, n):
         """Add the mandatory EOM correction required by H2 (Helmholtz #2).
 
-        Compute Z^{μνρσ(n-1)} (paper eq. for Z), decompose Z = Y · E^{(0)},
-        set X = -1/(2(n+1)) Y · h, append X · E^{(0)} to E. For pure gravity
-        with the Hilbert procedure (Butcher's claim) Z is zero, so no
-        correction is needed at any order. Until we have a Z-decomposition
-        algorithm, this step assumes Z=0 and skips the work.
+        Compute Z^{μν αβ} (paper eq. for Z): Z = 2(∂E/∂h)_{antisym(μν↔αβ)}
+        − ∂_γ (∂E/∂dh)_{antisym(μν↔αβ)}. If Z = 0, E already satisfies H2
+        and no correction is needed. If Z ≠ 0, decompose Z = Y · E^{(0)}
+        and append X · E^{(0)} with X = −1/(2(n+1)) Y · h. The decomposition
+        is open-work item 5 in DEVELOPMENT_STATUS.md — we raise loudly here
+        until it's implemented.
+
+        For the Hilbert procedure with no optional EOM terms, Butcher's
+        claim is that Z = 0 at every order (verified empirically by the
+        closure tests; now also verified directly via this check).
         """
         if n == 0:
             return E
-        # Pure-gravity-Hilbert: Z=0 (Butcher). We don't currently verify
-        # this directly — the n=2/n=3/n=4 closure tests imply it. With
-        # matter, this stub becomes load-bearing: see open-work item 4 in
-        # DEVELOPMENT_STATUS.md ("explicit H2-violation check").
+        if E == S.Zero:
+            if self.verbose:
+                print(f"    H2 check skipped (E is zero)")
+            return E
+        Z = compute_h2_violation(E, (self.mu_E, self.nu_E))
+        if Z != S.Zero:
+            n_z = _count(Z)
+            raise NotImplementedError(
+                f"H2 violation at order n={n}: Z has {n_z} terms (nonzero). "
+                "The EOM-correction machinery (decompose Z = Y · E^(0) and "
+                "set X = -1/(2(n+1)) Y · h) is not yet implemented — see "
+                "open-work item 5 in DEVELOPMENT_STATUS.md. Expected to be "
+                "reachable on the Belinfante path or with optional EOM "
+                "terms; if you see this on the Hilbert default path, "
+                "Butcher's Z=0 claim is being violated and something is "
+                "wrong upstream."
+            )
+        if self.verbose:
+            print(f"    H2 check: Z = 0 (OK)")
         return E
 
     def _step4_optional_eom(self, E, n, X_prime_h=None, X_prime_matter=None):

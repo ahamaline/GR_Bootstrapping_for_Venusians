@@ -53,35 +53,45 @@ _JET_HIERARCHY[dg] = {'parent': None, 'n_field_indices': 2}
 
 def uncontract_metrics(expr):
     """Make implicit metric factors explicit.
-    
+
     For each tensor factor, if an index is in the "wrong" position
     relative to its natural position, insert a metric factor to fix it.
-    
+
     E.g., dh(a, b, -c) with natural=[down,down,down]:
     - a is UP but should be DOWN → insert metric(a, d) * dh(-d, b, -c)
     - b is UP but should be DOWN → insert metric(b, e) * dh(-d, -e, -c)
     - c is already DOWN → no change
-    
+
     Returns expression with all fields having natural index positions
-    and explicit metric(...) factors for each raising/lowering.
+    and explicit metric(...) factors for each raising/lowering. Returns
+    `expr` unchanged when no factor needs adjustment (common for
+    already-natural products like dh(-a,-b,-c)).
     """
     if expr == S.Zero:
         return S.Zero
     if isinstance(expr, TensAdd):
         terms = [uncontract_metrics(t) for t in expr.args]
+        if all(t is o for t, o in zip(terms, expr.args)):
+            return expr
         return _sum_terms(terms)
     if isinstance(expr, TensMul):
         coeff, factors = _decompose_tensmul(expr)
         new_factors = []
         extra_metrics = []
+        any_change = False
         for f in factors:
             nf, ms = _uncontract_factor(f)
+            if ms or nf is not f:
+                any_change = True
             new_factors.append(nf)
             extra_metrics.extend(ms)
-        result = _rebuild_tensmul(coeff, extra_metrics + new_factors)
-        return result
+        if not any_change:
+            return expr
+        return _rebuild_tensmul(coeff, extra_metrics + new_factors)
     if isinstance(expr, Tensor):
         nf, ms = _uncontract_factor(expr)
+        if not ms and nf is expr:
+            return expr
         if ms:
             result = S.One
             for m in ms:
@@ -160,22 +170,28 @@ def replace_metric_with_ginv(expr):
         return S.Zero
     if isinstance(expr, TensAdd):
         terms = [replace_metric_with_ginv(t) for t in expr.args]
+        if all(t is o for t, o in zip(terms, expr.args)):
+            return expr
         return _sum_terms(terms)
     if isinstance(expr, TensMul):
         coeff, factors = _decompose_tensmul(expr)
         new_factors = []
+        any_change = False
         for f in factors:
             if _get_component(f) == metric:
                 kind = _classify_metric_factor(f)
-                indices = _get_indices(f)
-                if kind == 'up_up':
-                    new_factors.append(ginv(*indices))
-                elif kind == 'down_down':
-                    new_factors.append(g_down(*indices))
+                if kind == 'up_up' or kind == 'down_down':
+                    indices = _get_indices(f)
+                    new_factors.append(
+                        ginv(*indices) if kind == 'up_up' else g_down(*indices)
+                    )
+                    any_change = True
                 else:
                     new_factors.append(f)
             else:
                 new_factors.append(f)
+        if not any_change:
+            return expr
         return _rebuild_tensmul(coeff, new_factors)
     if isinstance(expr, Tensor):
         if _get_component(expr) == metric:

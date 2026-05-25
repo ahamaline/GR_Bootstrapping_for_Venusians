@@ -15,6 +15,8 @@ Both operations are the building blocks for the Euler-Lagrange derivative
 and for the Helmholtz conditions.
 """
 
+from functools import lru_cache
+
 from sympy import S, Rational, Add
 from sympy.tensor.tensor import (
     TensAdd, TensMul, TensExpr, TensorHead, TensorIndex, Tensor
@@ -64,17 +66,34 @@ def _get_indices(expr):
 
 def _decompose_tensmul(expr):
     """Decompose a TensMul into (coefficient, [tensor_factors]).
-    
+
     Returns:
         coeff: numerical/symbolic coefficient
         factors: list of Tensor objects (individual tensor factors)
+
+    **Raises ValueError if the input is a TensMul wrapping a TensAdd.**
+    This case (e.g. `(-1) * (A + B)` from `A − B` when sympy doesn't
+    distribute the negation) used to silently drop the inner TensAdd's
+    terms, producing wrong output downstream. The check now makes this
+    failure loud so callers can fix their input — typically by calling
+    `.expand()` (or `canon`) first. See MEMORY.md /
+    project-decompose-tensmul-tensadd-pitfall for the historical bites.
     """
     if isinstance(expr, Tensor):
         return S.One, [expr]
     if not isinstance(expr, TensMul):
         # Might be a pure number
         return expr, []
-    
+
+    if any(isinstance(a, TensAdd) for a in expr.args):
+        raise ValueError(
+            "_decompose_tensmul received a TensMul wrapping a TensAdd "
+            "(typical cause: undistributed (scalar)*(sum), e.g. from "
+            "raw `A - B` where sympy keeps `(-1)*B` as TensMul(NegativeOne, "
+            "TensAdd)). Call `.expand()` (or `canon`) on the input first to "
+            "distribute. Silently dropping the inner TensAdd would lose terms."
+        )
+
     coeff = expr.coeff
     factors = []
     for arg in expr.args:
@@ -146,7 +165,7 @@ def _jet_derivative_of_factor(factor, wrt_head, wrt_indices):
     factor_indices = _get_indices(factor)
     
     if len(factor_indices) != len(wrt_indices):
-        return S.Zero
+        return S.Zero  #USER COMMENT: shouldn't this throw an error?
     
     # Get the symmetry information for this jet variable
     info = _JET_HIERARCHY.get(wrt_head, {})
@@ -220,33 +239,26 @@ def _get_symmetric_groups(head, n_field, n_total):
     
     return groups
 
-def _symmetric_permutations(indices, sym_groups):
-    """Generate all distinct index permutations from symmetric groups.
-    
-    Args:
-        indices: list of TensorIndex
-        sym_groups: list of lists of positions that are symmetric
-        
-    Returns:
-        (permutations, normalization_factor)
-        permutations: list of tuples, each a permutation of indices
-        normalization_factor: Rational number (1/count)
+@lru_cache(maxsize=None)
+def _position_permutations(n_indices, sym_groups_key):
+    """Position-only permutations for given symmetry groups; cacheable.
+
+    sym_groups_key is the sym_groups list serialized as a tuple-of-tuples so it's
+    hashable. Returns (list_of_position_tuples, normalization). Mapping to
+    actual TensorIndex objects happens in `_symmetric_permutations` — that
+    mapping is cheap, but the permutation enumeration here is the expensive
+    part that was being recomputed identically on every jet_derivative call.
     """
     from itertools import permutations as iterperms
-    
+
+    sym_groups = [list(g) for g in sym_groups_key]
     if not sym_groups:
-        # No symmetry: only the identity permutation
-        return [tuple(indices)], S.One
-    
-    # Generate all permutations within each symmetric group
-    # and take their direct product
-    idx_list = list(indices)
-    all_perms = {tuple(range(len(idx_list)))}  # start with identity
-    
+        return [tuple(range(n_indices))], S.One
+
+    all_perms = {tuple(range(n_indices))}
     for group in sym_groups:
         new_perms = set()
         for existing_perm in all_perms:
-            # Generate all permutations of the group positions
             group_vals = [existing_perm[g] for g in group]
             for gp in iterperms(group_vals):
                 new_perm = list(existing_perm)
@@ -254,13 +266,26 @@ def _symmetric_permutations(indices, sym_groups):
                     new_perm[g_pos] = gp_val
                 new_perms.add(tuple(new_perm))
         all_perms = new_perms
-    
-    # Convert position permutations to index permutations
-    result = []
-    for perm in all_perms:
-        result.append(tuple(idx_list[p] for p in perm))
-    
+
+    result = [tuple(perm) for perm in all_perms]
     normalization = Rational(1, len(result))
+    return result, normalization
+
+
+def _symmetric_permutations(indices, sym_groups):
+    """Generate all distinct index permutations from symmetric groups.
+
+    Args:
+        indices: list of TensorIndex
+        sym_groups: list of lists of positions that are symmetric
+
+    Returns:
+        (permutations, normalization_factor)
+    """
+    sym_groups_key = tuple(tuple(g) for g in sym_groups)
+    pos_perms, normalization = _position_permutations(len(indices), sym_groups_key)
+    idx_list = list(indices)
+    result = [tuple(idx_list[p] for p in perm) for perm in pos_perms]
     return result, normalization
 
 
@@ -335,7 +360,7 @@ def jet_derivative(expr, wrt_head, wrt_indices):
 
 def total_derivative(expr, deriv_index):
     """Take the total spacetime derivative ∂_τ of a tensor expression.
-    
+
     This acts via the chain rule on each jet variable:
         ∂_τ h_{μν}     = h_{μν,τ}       (i.e., dh_{μν,τ})
         ∂_τ h_{μν,ρ}   = h_{μν,ρτ}      (i.e., ddh_{μν,ρτ})
@@ -343,25 +368,42 @@ def total_derivative(expr, deriv_index):
         ∂_τ φ          = φ_{,τ}          (dphi_τ)
         ∂_τ φ_{,μ}     = φ_{,μτ}        (ddphi_{μτ})
         ∂_τ η_{μν}     = 0              (background metric is constant)
-    
+
     Applies the Leibniz rule on products.
-    
+
+    **Input is .expand()'d defensively.** The Leibniz loop relies on
+    `_decompose_tensmul` to split each TensAdd arg into (coeff, factors).
+    But `_decompose_tensmul` silently drops any TensAdd args of a TensMul
+    (the long-standing footgun in MEMORY.md/project-decompose-tensmul-
+    tensadd-pitfall). This bites total_derivative whenever the input
+    contains a TensMul wrapping a TensAdd — most commonly from `A − B`
+    where `A`, `B` are TensAdds: sympy represents this as
+    `TensAdd(A, TensMul(-1, B))` and never distributes the −1 across B.
+    `.expand()` here flattens those wraps so every leaf TensMul is a flat
+    product of Tensors. Cheap if the input is already expanded; corrects
+    the input if it isn't.
+
     Args:
-        expr: tensor expression
+        expr: tensor expression (should be in canonical form — see warning)
         deriv_index: TensorIndex for the derivative direction (should be
             covariant/negative, representing ∂_τ)
-            
+
     Returns:
         Canonicalized tensor expression for ∂_τ(expr).
-        
+
     Raises:
-        ValueError: if the expression contains a jet variable at the 
+        ValueError: if the expression contains a jet variable at the
             highest level (e.g., ddh) that cannot be differentiated further.
     """
     if isinstance(expr, (int, float)):
         return S.Zero
     if expr == S.Zero:
         return S.Zero
+
+    # Distribute any TensMul-wrapped TensAdd (e.g. (-1) * TensAdd from `A − B`)
+    # so the Leibniz loop sees flat leaf TensMuls. See docstring above.
+    if isinstance(expr, TensExpr):
+        expr = expr.expand()
 
     if isinstance(expr, TensAdd):
         terms = [total_derivative(t, deriv_index) for t in expr.args]

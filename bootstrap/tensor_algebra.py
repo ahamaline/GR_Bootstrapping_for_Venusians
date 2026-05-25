@@ -389,7 +389,14 @@ def canon(expr):
 def _strip_zero_index_recursive(expr):
     """Walk expr; return (expr_with_0index_Tensor_factors_replaced_by_1,
     list_of_those_tensors). Recurses into nested TensMul; treats TensAdd
-    as a leaf (the outer canon() distributes over TensAdd first)."""
+    as a leaf (the outer canon() distributes over TensAdd first).
+
+    Short-circuit: if nothing was stripped from a TensMul subtree, return
+    the original expr untouched — avoids a TensMul(*new_args).doit()
+    rebuild on every recursion when the expression has no 0-index Tensor
+    factors anywhere in the subtree (the common case once stripping has
+    been done at a higher level).
+    """
     if isinstance(expr, Tensor):
         if len(expr.get_indices()) == 0:
             return S.One, [expr]
@@ -397,11 +404,16 @@ def _strip_zero_index_recursive(expr):
     if isinstance(expr, TensMul):
         new_args = []
         scalars = []
+        any_change = False
         for a in expr.args:
             sub_stripped, sub_scalars = _strip_zero_index_recursive(a)
+            if sub_scalars or sub_stripped is not a:
+                any_change = True
             scalars.extend(sub_scalars)
             if sub_stripped is not S.One and sub_stripped != 1:
                 new_args.append(sub_stripped)
+        if not any_change:
+            return expr, []
         if not new_args:
             return S.One, scalars
         if len(new_args) == 1:

@@ -484,44 +484,65 @@ def _cyclic_perm_indices(expr, i1, i2, i3):
 # H2 violation and EOM term computation (eq. 28 and related)
 # ---------------------------------------------------------------------------
 
-def compute_h2_violation(E_expr, n):
+def compute_h2_violation(E_expr, E_indices):
     """Compute the H2 violation tensor Z^{mu nu alpha beta}.
-    
-    Z = 2(dE^mn/dh_ab - dE^ab/dh_mn) - d_gamma(dE^mn/dh_{ab,g} - dE^ab/dh_{mn,g})
-    
-    If this is nonzero, EOM terms must be added to E to satisfy H2.
-    
+
+    H2 (paper §3, eq. labeled `H2` and the explicit form at eq. labeled
+    `Z`) is the integrability condition for E^{μν} to come from a
+    Lagrangian's EL derivative:
+
+        Z^{μν αβ} = 2 (∂E^{μν}/∂h_{αβ} − ∂E^{αβ}/∂h_{μν})
+                  − ∂_γ (∂E^{μν}/∂h_{αβ,γ} − ∂E^{αβ}/∂h_{μν,γ}).
+
+    The paper (§3 around the H2 derivation) assumes the Lagrangian — and
+    therefore E — depends on h only through h and dh, no ddh. Our E_2 can
+    still carry ddh (e.g. the wave operator W^{μν} at n=1, or Christoffel
+    contributions inside T_H[L^{(n)}]). Such ddh pieces are in the kernel
+    of THIS formula (both ∂/∂h and ∂/∂dh annihilate ddh), so they don't
+    contribute and the formula stays correct as written.
+
+    With the Hilbert procedure and no optional EOM terms, Butcher's claim
+    is Z = 0 at every order — verified empirically by the closure tests.
+    On other paths (Belinfante, optional EOM additions) Z can be nonzero,
+    in which case the EOM-correction machinery in `compute_eom_correction`
+    decomposes it.
+
     Args:
-        E_expr: tensor expression for E^{mu nu}(n) — the current field
-            equation contribution at order n.
-        n: the order in h.
-        
+        E_expr: tensor expression for E^{μν(n)}.
+        E_indices: (mu, nu) — the free indices of E_expr.
+
     Returns:
-        Z: tensor expression for the violation. Its free indices are
-           (mu_E, nu_E, alpha, beta) where mu_E, nu_E are the free indices
-           of E_expr and alpha, beta are fresh.
+        Z: tensor expression with four free indices (mu, nu, alpha, beta),
+           or S.Zero if E_expr is zero.
     """
     from bootstrap.jet import total_derivative
-    
+
+    if E_expr == S.Zero:
+        return S.Zero
+
+    mu, nu = E_indices
     alpha, beta = fresh_indices(2)
     gamma, = fresh_indices(1)
-    
-    # dE/dh_{ab}: jet derivative of E by h
-    dE_dh = jet_derivative(E_expr, h, [alpha, beta])
-    
-    # For the second term, we need dE^{ab}/dh_{mn} — but E's free indices
-    # are fixed. We need a version of E with alpha,beta as the free indices.
-    # This requires swapping the free indices of E_expr with alpha,beta.
-    # 
-    # ISSUE: this is tricky because we don't know which indices in E_expr
-    # are the "free" ones representing mu,nu. We'd need them passed in.
-    # 
-    # For now, return just the Z tensor with a simplified approach:
-    # We'll require the caller to pass the free indices of E.
-    
-    # TODO: implement fully once we have the bootstrap loop context
-    # For now, return a placeholder
-    return S.Zero
+
+    # E^{αβ}: relabel E_expr's free (μ, ν) → (α, β) via substitute_indices.
+    E_ab = E_expr.substitute_indices(
+        (mu, alpha), (-mu, -alpha), (nu, beta), (-nu, -beta)
+    )
+
+    # Algebraic piece: 2 (∂E^{μν}/∂h_{αβ} − ∂E^{αβ}/∂h_{μν}).
+    dE_mn_h = jet_derivative(E_expr, h, [alpha, beta])
+    dE_ab_h = jet_derivative(E_ab, h, [mu, nu])
+
+    # dh piece: −∂_γ (∂E^{μν}/∂h_{αβ,γ} − ∂E^{αβ}/∂h_{μν,γ}).
+    dE_mn_dh = jet_derivative(E_expr, dh, [alpha, beta, gamma])
+    dE_ab_dh = jet_derivative(E_ab, dh, [mu, nu, gamma])
+    dh_inner = dE_mn_dh - dE_ab_dh
+    dh_piece = total_derivative(dh_inner, -gamma) if dh_inner != S.Zero else S.Zero
+
+    Z = 2 * (dE_mn_h - dE_ab_h) - dh_piece
+    if isinstance(Z, TensExpr):
+        Z = canon(Z)
+    return Z
 
 
 def compute_eom_correction(Z_expr, n):
