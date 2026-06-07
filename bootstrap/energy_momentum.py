@@ -488,7 +488,7 @@ def _spin_tensor_contribution(L, mu, nu, rho):
 
 
 def _belinfante_improvement(L, mu, nu):
-    """Compute ∂_ρ B^{ρμν} where B^{ρμν} = ½(S^{ρμν} + S^{νρμ} − S^{μνρ}).
+    """Compute ∂_ρ B^{ρμν} where B^{ρμν} = ½(S^{ρμν} − S^{νρμ} + S^{μνρ}).
 
     Standard Belinfante–Rosenfeld combination of three permutations of the
     spin tensor S. Antisymmetric in (ρμ) by construction, so the improvement
@@ -752,7 +752,14 @@ def _christoffel_via_substitution(L, mu, nu):
         delta_L_V = pi_V * Gamma_V * V_head(tau_V)
         delta_L = delta_L + delta_L_V
 
-#USER CODE: add covariant derivatives for A
+    # --- (c) Downstairs-vector contributions ---
+    # Counterpart of (b) for a downstairs vector A_α: covariantization
+    # promotes ∂_ρ A_σ → ∇_ρ A_σ = ∂_ρ A_σ − Γ^τ_{ρσ} A_τ, giving the
+    # chain-rule contribution δL_A = (∂L/∂dA) × (−Γ^τ_{ρσ} A_τ). Unlike the
+    # Lagrangian-expansion path in covariant.matter_lagrangian_order — where
+    # a downstairs A only enters via the antisymmetric F_{μν} and the Γ
+    # cancels — the Hilbert variation acts on the EM tensor and needs this
+    # term explicitly.
     for _name, info in _matter_fields.items():
         if info.get('index_pos') != 'down' or info.get('rank') != 1:
             continue
@@ -774,7 +781,6 @@ def _christoffel_via_substitution(L, mu, nu):
         # δL_A = -π_A × Γ_A × A_τ — fully contracted scalar contribution.
         delta_L_A = -pi_A * Gamma_A * A_head(-tau_A)
         delta_L = delta_L + delta_L_A
-#END USER CODE
 
     if delta_L == S.Zero:
         return S.Zero

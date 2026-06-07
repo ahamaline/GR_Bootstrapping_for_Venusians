@@ -10,18 +10,29 @@ Given g_{mu nu} = eta_{mu nu} + 2*kappa*h_{mu nu}, computes:
 
 All in abstract index notation, using the jet-space variables.
 
-Follows the approach of GR.fr: when computing products of power series, sme of which only begin at orser 1,
-each factor only needs to be expanded to the required order, which may be less then the total order we're interested in.
+Follows the approach of GR.fr: when computing products of power series, some of which only begin at order 1,
+each factor only needs to be expanded to the required order, which may be less than the total order we're interested in.
 """
 
 from sympy import S, Rational, Symbol
-from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
+from sympy.tensor.tensor import (
+    TensAdd, TensMul, TensExpr, Tensor, TensorHead, TensorSymmetry,
+)
 from bootstrap.tensor_algebra import (
     Lorentz, metric, h, dh, ddh,
-    fresh_indices, canon, filter_by_order
+    fresh_indices, canon, filter_by_order, NATURAL_POSITIONS,
 )
 
 kappa = Symbol('kappa')
+
+# Riemann tensor head R^lambda_{mu rho nu}: a placeholder the user writes
+# nonminimal couplings with (e.g. xi*phi**2 * Ricci, with Ricci built by
+# contracting Riemann via ginv). `covariant_coupling_order` replaces each
+# Riemann factor with `riemann_order(k)` during the h-expansion, so the head
+# carries no symmetry of its own (the expansion supplies the real Riemann
+# symmetries). Natural index positions: up, down, down, down.
+Riemann = TensorHead('Riemann', [Lorentz] * 4, TensorSymmetry.no_symmetry(4))
+NATURAL_POSITIONS[Riemann] = ['up', 'down', 'down', 'down']
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +144,7 @@ def christoffel_order(n, lam, mu_idx, nu_idx):
     
     sigma, = fresh_indices(1)
     
-    # g^{lambda sigma} at order n-1. USER COMMENT: good that you noticed we only need one specific order here! 
+    # g^{lambda sigma} only needs order n-1 (the dh factor is already order 1).
     ginv = inverse_metric_order(n - 1, lam, sigma)
     
     # The Christoffel bracket: dh_{sigma mu, nu} + dh_{nu sigma, mu} - dh_{mu nu, sigma}
@@ -337,23 +348,37 @@ def matter_lagrangian_order(L_M, n):
     (e.g. for a scalar: L_M = -1/2 ∂φ·∂φ). L̃_M is the covariantized form
     obtained by:
       (a) η^{μν} → g^{μν}    and    η_{μν} → g_{μν}    (metric promotion)
-      (b) ∂_ρ V^σ → ∇_ρ V^σ = ∂_ρ V^σ + Γ^σ_{ρτ} V^τ   (only for matter
-          fields whose natural field-index position is 'up', i.e. registered
-          via register_upstairs_vector_field) USER COMMENT: In principle it would be for all vector and tensor fields, EM is just an exception because F is an exterior derivative of A. 
+      (b) covariantize vector derivatives:
+            upstairs V^σ:   ∂_ρ V^σ → ∇_ρ V^σ = ∂_ρ V^σ + Γ^σ_{ρτ} V^τ
+            downstairs A_σ: ∂_ρ A_σ → ∇_ρ A_σ = ∂_ρ A_σ − Γ^τ_{ρσ} A_τ
       (c) overall √|g| volume factor
 
-    For scalar fields and for gauge-invariant vector matter (e.g. EM,
-    where Γ cancels in the antisymmetric F_{μν} combination), the
-    Christoffel correction (b) is either trivially zero or auto-cancels in
-    the algebraic simplification; (a) is sufficient. For an upstairs vector
-    V^μ used outside an antisymmetric combination (e.g. in V^μ V_μ or via
-    explicit (∇V) factors), (b) IS needed and is applied here. USER COMMENT: (b) is needed even in an assymmetric combination!  
+    On (b): the Christoffel correction applies to ANY rank-1 vector field
+    and is implemented for both orientations. Whether it survives depends on
+    the combination it sits in:
+      - DOWNSTAIRS A: a gauge field enters only through F_{μν} = ∂_μ A_ν −
+        ∂_ν A_μ, the exterior derivative of the one-form A. That is
+        connection-independent — ∇_μ A_ν − ∇_ν A_μ = ∂_μ A_ν − ∂_ν A_μ
+        because the symmetric Γ^τ_{μν} cancels between the two terms — so (b)
+        is a no-op for pure F^2 matter (EM). This cancellation is special to
+        the downstairs/exterior-derivative structure; in any
+        NON-antisymmetric combination of A's derivatives it does NOT cancel,
+        so we apply (b) unconditionally rather than assuming the F-structure.
+      - UPSTAIRS V: there is no analogous cancellation. (Antisymmetrizing a
+        field strength means putting both indices in the same position; that
+        cancellation is the downstairs one-form's exterior-derivative
+        property and has no upstairs counterpart.) The Christoffel term in
+        ∇_ρ V^σ genuinely survives, so (b) always contributes for V.
+    The cancellation, where it occurs, happens term-by-term across the
+    expanded monomials under canon. (The Hilbert procedure carries the same
+    corrections on the EM-tensor side — see
+    energy_momentum._christoffel_via_substitution.)
 
-    The order-n piece sums over compositions n = k_sqrt + Σ k_metric + Σ k_dV
-    where each metric factor and each upstairs-dV factor independently picks
+    The order-n piece sums over compositions n = k_sqrt + Σ k_metric + Σ k_dvec
+    where each metric factor and each vector d-field factor independently picks
     an h-order to contribute. Metric factors expand via inverse_metric_order
-    (up-up) or metric_order (down-down); upstairs-dV factors contribute the
-    raw ∂V at k=0 or the order-k Christoffel correction Γ^σ_{ρτ} V^τ at k≥1.
+    (up-up) or metric_order (down-down); vector d-field factors contribute the
+    raw ∂V/∂A at k=0 or the order-k Christoffel correction at k≥1.
 
     Args:
         L_M: matter Lagrangian (scalar, using registered matter field heads).
@@ -379,11 +404,14 @@ def matter_lagrangian_order(L_M, n):
     if n == 0:
         return canon(L_M)
 
-    # Build a {dV_head: V_head} index for upstairs-vector d-field detection.
-    dfield_to_field = {}
-    for name, info in _matter_fields.items():
-        if info.get('index_pos') == 'up' and info.get('rank') == 1:
-            dfield_to_field[info['dfield']] = info['field']
+    # Build {dfield_head: (field_head, orientation)} for rank-1 vector fields
+    # whose covariant derivative carries a Christoffel correction. BOTH
+    # upstairs V^σ and downstairs A_σ are included; they differ in the sign
+    # and index placement of the correction (handled in the expansion below).
+    dvec_dfields = {}
+    for _nm, info in _matter_fields.items():
+        if info.get('rank') == 1 and info.get('index_pos') in ('up', 'down'):
+            dvec_dfields[info['dfield']] = (info['field'], info['index_pos'])
 
     # Uncontract η factors so each implicit contraction becomes an explicit
     # metric(μ, ν) factor that we can then expand in h.
@@ -406,10 +434,11 @@ def matter_lagrangian_order(L_M, n):
 
         # Classify factors into three buckets:
         #   metric_factors:  list of (indices, 'up_up'|'down_down')
-        #   dV_factors:      list of (field_idx, deriv_idx, V_head)
+        #   dvec_factors:    list of (field_idx, deriv_idx, field_head,
+        #                             dfield_head, orientation)
         #   kept_factors:    everything else, passed through unchanged
         metric_factors = []
-        dV_factors = []
+        dvec_factors = []
         kept_factors = []
         for f in factors:
             comp = _get_component(f)
@@ -423,25 +452,28 @@ def matter_lagrangian_order(L_M, n):
                     # mixed → Kronecker delta; passes through unchanged.
                     kept_factors.append(f)
                 continue
-            if comp in dfield_to_field:
+            if comp in dvec_dfields:
                 inds = _get_indices(f)
-                # Natural positions for an upstairs-vector d-field are
-                # ['up', 'down']: index 0 is the field index, index 1 the
-                # derivative index. After uncontract_metrics the factor is
-                # always in this natural form.
-                if NATURAL_POSITIONS.get(comp) == ['up', 'down']:
-                    dV_factors.append((inds[0], inds[1], dfield_to_field[comp]))
+                field_head, orientation = dvec_dfields[comp]
+                # Natural d-field positions are ['up','down'] (upstairs V) or
+                # ['down','down'] (downstairs A); in both, index 0 is the field
+                # index and index 1 the derivative index. After
+                # uncontract_metrics the factor is in this natural form.
+                if NATURAL_POSITIONS.get(comp) in (['up', 'down'], ['down', 'down']):
+                    dvec_factors.append(
+                        (inds[0], inds[1], field_head, comp, orientation)
+                    )
                     continue
             kept_factors.append(f)
 
         M = len(metric_factors)
-        D = len(dV_factors)
+        D = len(dvec_factors)
 
-        # Sum over compositions (k_sqrt, k_metrics..., k_dVs...) with total n.
+        # Sum over compositions (k_sqrt, k_metrics..., k_dvecs...) with total n.
         for ks in _compositions(n, M + D + 1):
             k_sqrt = ks[0]
             k_metrics = ks[1:1 + M]
-            k_dVs = ks[1 + M:]
+            k_dvecs = ks[1 + M:]
             sg = sqrt_det_g_order(k_sqrt)
             if sg == S.Zero and k_sqrt > 0:
                 continue
@@ -459,31 +491,38 @@ def matter_lagrangian_order(L_M, n):
                 piece = piece * g_part
             if zeroed:
                 continue
-            # Upstairs-dV expansion: raw partial at k=0, Christoffel piece at k≥1.
-            for (field_idx, deriv_idx, V_head), k_dV in zip(dV_factors, k_dVs):
-                if k_dV == 0:
-                    # Original ∂_ρ V^σ piece.
-                    dV_head = None
-                    for dfh, vh in dfield_to_field.items():
-                        if vh is V_head:
-                            dV_head = dfh
-                            break
-                    dV_part = dV_head(field_idx, deriv_idx)
-                else:
-                    # Christoffel correction at order k_dV:
-                    #   +Γ^{field}_{deriv τ} V^τ
-                    # christoffel_order expects: (k, lambda_up, mu_down, nu_down).
-                    # field_idx is naturally up, deriv_idx is naturally down.
+            # Vector-dfield expansion: raw partial at k=0, Christoffel piece
+            # at k≥1. Upstairs V^σ: ∇_ρ V^σ = ∂_ρ V^σ + Γ^σ_{ρτ} V^τ.
+            # Downstairs A_σ: ∇_ρ A_σ = ∂_ρ A_σ − Γ^τ_{ρσ} A_τ. For a gauge
+            # field the Γ cancels in the antisymmetric F_{ρσ}, but that
+            # cancellation happens term-by-term across the expanded monomials
+            # under canon — we apply the correction unconditionally and let it
+            # cancel where it should.
+            for (field_idx, deriv_idx, field_head, dfield_head, orientation), k_dv \
+                    in zip(dvec_factors, k_dvecs):
+                if k_dv == 0:
+                    # Raw ∂_ρ V^σ / ∂_ρ A_σ piece.
+                    dvec_part = dfield_head(field_idx, deriv_idx)
+                elif orientation == 'up':
+                    # +Γ^{field}_{deriv τ} V^τ. christoffel_order args are
+                    # (k, lambda_up, mu_down, nu_down); field_idx is up,
+                    # deriv_idx down.
                     tau, = fresh_indices(1)
-                    Gamma_k = christoffel_order(k_dV, field_idx, deriv_idx, -tau)
-                    if Gamma_k == S.Zero:
-                        dV_part = S.Zero
-                    else:
-                        dV_part = Gamma_k * V_head(tau)
-                if dV_part == S.Zero:
+                    Gamma_k = christoffel_order(k_dv, field_idx, deriv_idx, -tau)
+                    dvec_part = (Gamma_k * field_head(tau)
+                                 if Gamma_k != S.Zero else S.Zero)
+                else:
+                    # −Γ^τ_{deriv field} A_τ. field_idx and deriv_idx are both
+                    # down; Γ is symmetric in its lower pair so their order is
+                    # immaterial.
+                    tau, = fresh_indices(1)
+                    Gamma_k = christoffel_order(k_dv, tau, deriv_idx, field_idx)
+                    dvec_part = (-Gamma_k * field_head(-tau)
+                                 if Gamma_k != S.Zero else S.Zero)
+                if dvec_part == S.Zero:
                     zeroed = True
                     break
-                piece = piece * dV_part
+                piece = piece * dvec_part
             if zeroed:
                 continue
             for f in kept_factors:
@@ -538,7 +577,131 @@ def einstein_hilbert_lagrangian_order(n):
     
     if result == S.Zero:
         return S.Zero
-    
+
     result = prefactor * result
+    return canon(result) if isinstance(result, TensExpr) else result
+
+
+# ---------------------------------------------------------------------------
+# Nonminimal matter-curvature coupling expansion
+# ---------------------------------------------------------------------------
+
+def covariant_coupling_order(coupling, n):
+    """Order-n (in h) part of sqrt|g| * a nonminimal coupling C(fields)*Riemann.
+
+    `coupling` is a derivative-free function of the matter fields times one or
+    more `Riemann` factors (e.g. xi*phi**2 * R, with the Ricci scalar R written
+    as metric(mu,nu)*Riemann(lam,-mu,-lam,-nu)). The expansion:
+      - each Riemann factor -> riemann_order(k) (contributes at order k>=1,
+        since R^(0)=0 on the flat background; k=0 compositions self-prune);
+      - metric factors (from contracting Riemann down to Ricci/scalar) ->
+        inverse_metric_order (up-up) / metric_order (down-down);
+      - matter factors C(fields) pass through unchanged;
+      - overall sqrt|g| volume factor.
+    Mirrors `matter_lagrangian_order`'s composition machinery. Riemann indices
+    are assumed natural (up,down,down,down) after uncontract_metrics, which
+    inserts explicit metric factors for any non-natural index.
+    """
+    from bootstrap.energy_momentum import uncontract_metrics
+    from bootstrap.jet import (
+        _decompose_tensmul, _get_component, _get_indices, _sum_terms,
+    )
+
+    if coupling == S.Zero or n < 0:
+        return S.Zero
+
+    L_unc = uncontract_metrics(coupling)
+    terms_in = L_unc.args if isinstance(L_unc, TensAdd) else [L_unc]
+    out_terms = []
+    for term in terms_in:
+        if isinstance(term, TensMul):
+            coeff, factors = _decompose_tensmul(term)
+        elif isinstance(term, Tensor):
+            coeff, factors = S.One, [term]
+        else:
+            coeff, factors = term, []
+
+        metric_factors = []   # ((mi, ni), 'up_up'|'down_down')
+        riemann_factors = []  # index tuples (natural up,down,down,down)
+        kept_factors = []     # matter C(fields), passed through
+        for f in factors:
+            comp = _get_component(f)
+            if comp is metric:
+                inds = _get_indices(f)
+                if all(idx.is_up for idx in inds):
+                    metric_factors.append((inds, 'up_up'))
+                elif all(not idx.is_up for idx in inds):
+                    metric_factors.append((inds, 'down_down'))
+                else:
+                    kept_factors.append(f)  # mixed -> Kronecker delta
+                continue
+            if comp is Riemann:
+                riemann_factors.append(_get_indices(f))
+                continue
+            kept_factors.append(f)
+
+        M = len(metric_factors)
+        R = len(riemann_factors)
+        for ks in _compositions(n, M + R + 1):
+            k_sqrt = ks[0]
+            k_metrics = ks[1:1 + M]
+            k_riems = ks[1 + M:]
+            sg = sqrt_det_g_order(k_sqrt)
+            if sg == S.Zero and k_sqrt > 0:
+                continue
+            piece = coeff * sg
+            zeroed = False
+            for ((mi, ni), kind), k_i in zip(metric_factors, k_metrics):
+                g_part = (inverse_metric_order(k_i, mi, ni) if kind == 'up_up'
+                          else metric_order(k_i, mi, ni))
+                if g_part == S.Zero:
+                    zeroed = True
+                    break
+                piece = piece * g_part
+            if zeroed:
+                continue
+            for inds, k_r in zip(riemann_factors, k_riems):
+                # Riemann starts at order 1; riemann_order(0)=0 prunes k_r=0.
+                # Re-index to FRESH '_i' indices before calling riemann_order:
+                # it runs total_derivative/canon internally, which clashes with
+                # canon'd 'L_n' names (dummy_name='L'); fresh names dodge it,
+                # the same way ricci_scalar_order does. Internal contractions
+                # (same index name in two slots, e.g. the Ricci self-trace) are
+                # preserved by mapping equal names to the same fresh index.
+                name_to_fresh = {}
+                fresh_inds = []
+                for idx in inds:
+                    if idx.name not in name_to_fresh:
+                        name_to_fresh[idx.name] = fresh_indices(1)[0]
+                    fr = name_to_fresh[idx.name]
+                    fresh_inds.append(fr if idx.is_up else -fr)
+                r_part = riemann_order(k_r, *fresh_inds)
+                if r_part == S.Zero:
+                    zeroed = True
+                    break
+                # Relabel the surviving (external/free) fresh indices back to
+                # the originals via delta-metric contraction + canon. A raw
+                # substitute_indices collides with riemann_order's internal
+                # 'L_n' dummies; canon renames the colliding dummy instead.
+                fresh_to_orig = {}
+                for orig, fr_s in zip(inds, fresh_inds):
+                    fr_pos = fr_s if fr_s.is_up else -fr_s
+                    fresh_to_orig[fr_pos] = orig if orig.is_up else -orig
+                for fidx in list(r_part.get_free_indices()):
+                    fr_pos = fidx if fidx.is_up else -fidx
+                    orig_pos = fresh_to_orig.get(fr_pos)
+                    if orig_pos is None or orig_pos == fr_pos:
+                        continue
+                    delta = (metric(-fr_pos, orig_pos) if fidx.is_up
+                             else metric(fr_pos, -orig_pos))
+                    r_part = canon(r_part * delta)
+                piece = piece * r_part
+            if zeroed:
+                continue
+            for f in kept_factors:
+                piece = piece * f
+            out_terms.append(piece)
+
+    result = _sum_terms(out_terms)
     return canon(result) if isinstance(result, TensExpr) else result
 

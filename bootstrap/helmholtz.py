@@ -21,13 +21,13 @@ This module implements the key formulas from Section 3 of the paper:
 from sympy import S, Rational, Symbol, integrate
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 from bootstrap.tensor_algebra import (
-    Lorentz, metric, h, dh, ddh,
-    fresh_indices, canon, _JET_HIERARCHY, _matter_fields,
-    NATURAL_POSITIONS,
+    h, dh, ddh,
+    fresh_indices, canon, _matter_fields,
+    NATURAL_POSITIONS, swap_free_indices,
 )
 from bootstrap.jet import (
     jet_derivative, _sum_terms, _decompose_tensmul,
-    _get_component, _get_indices,
+    _get_component,
 )
 
 
@@ -136,7 +136,7 @@ def compute_superpotential_n1(M_expr, M_indices, matter_field_heads=None):
 
     where M' = M with phi -> lambda * phi for every matter field, applied
     *after* the partial derivatives are taken. For polynomial matter (per
-    USER NOTE in the dev status), this lambda integral is just
+    the dev-status note), this lambda integral is just
     integral_0^1 lambda^d dlambda = 1/(d+1) for each power d.
 
     Args:
@@ -377,107 +377,30 @@ def verify_psi_symmetries(Psi, psi_indices):
     results = {}
     
     # 1. Symmetric in (mu, nu): Psi(mu,nu,rho,sigma) - Psi(nu,mu,rho,sigma) = 0
-    Psi_swapped_mn = _swap_free_indices(Psi, mu, nu)
+    Psi_swapped_mn = swap_free_indices(Psi, mu, nu)
     diff_mn = canon(Psi - Psi_swapped_mn)
     results['sym_mn'] = (diff_mn == S.Zero)
     if not results['sym_mn']:
         results['sym_mn_residual'] = diff_mn
-    
+
     # 2. Symmetric in (rho, sigma): similar
-    Psi_swapped_rs = _swap_free_indices(Psi, rho, sigma)
+    Psi_swapped_rs = swap_free_indices(Psi, rho, sigma)
     diff_rs = canon(Psi - Psi_swapped_rs)
     results['sym_rs'] = (diff_rs == S.Zero)
     if not results['sym_rs']:
         results['sym_rs_residual'] = diff_rs
-    
-    # 3. Cyclic antisymmetry in last 3 indices:
-    # Psi^{m,n,r,s} + Psi^{m,r,n,s} + Psi^{m,s,r,n} = 0
-    # We need Psi with (nu,rho,sigma) cyclically permuted to (rho,sigma,nu) 
-    # and (sigma,nu,rho)
-    Psi_cyc1 = _cyclic_perm_indices(Psi, nu, rho, sigma)  # (m,r,s,n)
-    Psi_cyc2 = _cyclic_perm_indices(Psi_cyc1, rho, sigma, nu)  # (m,s,n,r)
-    
-    # Actually, the condition from the paper is:
-    # Psi^{mu nu rho sigma} + Psi^{mu rho nu sigma} + Psi^{mu sigma rho nu} = 0
-    # So we swap the second index with rho, and separately with sigma
-    Psi_perm1 = _swap_free_indices(Psi, nu, rho)  # Psi^{mu rho nu sigma}
-    Psi_perm2 = _swap_free_indices(Psi, nu, sigma) # Psi^{mu sigma rho nu}
-    # But we also need to account for the swap in the third slot in perm2
-    # Actually Psi^{mu sigma rho nu}: swap nu<->sigma gives us 
-    # Psi(mu, sigma, rho, nu) — this IS correct as a free-index permutation
-    
+
+    # 3. Cyclic antisymmetry in the last three indices (paper):
+    #    Psi^{mu nu rho sigma} + Psi^{mu rho nu sigma} + Psi^{mu sigma rho nu} = 0.
+    # Each permutation is a free-index swap of nu with rho / sigma respectively.
+    Psi_perm1 = swap_free_indices(Psi, nu, rho)    # Psi^{mu rho nu sigma}
+    Psi_perm2 = swap_free_indices(Psi, nu, sigma)  # Psi^{mu sigma rho nu}
     cyclic_sum = canon(Psi + Psi_perm1 + Psi_perm2)
     results['cyclic'] = (cyclic_sum == S.Zero)
     if not results['cyclic']:
         results['cyclic_residual'] = cyclic_sum
     
     return results
-
-
-def _swap_free_indices(expr, idx1, idx2):
-    """Swap two free indices in a tensor expression.
-    
-    This is a formal operation: replace every occurrence of idx1 with idx2. USER COMMENT: this is a very useful general function, it should probably be in tensor_algebra.py
-    and vice versa.
-    """
-    if expr == S.Zero:
-        return S.Zero
-    
-    # Use a temporary index to avoid clashes
-    tmp, = fresh_indices(1)
-    
-    # idx1 -> tmp, idx2 -> idx1, tmp -> idx2
-    result = expr
-    # We need to handle both positive and negative versions of each index
-    for sign_mult in [1, -1]:
-        i1 = idx1 if sign_mult == 1 else -idx1
-        i2 = idx2 if sign_mult == 1 else -idx2
-        t = tmp if sign_mult == 1 else -tmp
-        
-        # This is tricky with SymPy tensors. Let's use a substitution approach.
-    
-    # Actually, the simplest approach: use TensExpr.substitute_indices
-    # or .fun_eval
-    if hasattr(expr, 'substitute_indices'):
-        try:
-            # SymPy's substitute_indices: replace idx1 with tmp, then idx2 with idx1, 
-            # then tmp with idx2
-            result = expr.substitute_indices((idx1, tmp), (-idx1, -tmp))
-            result = result.substitute_indices((idx2, idx1), (-idx2, -idx1))
-            result = result.substitute_indices((tmp, idx2), (-tmp, -idx2))
-            return result
-        except:
-            pass
-    
-    # Fallback: manual replacement via string manipulation is not great.
-    # For now, try another approach using SymPy's _set_new_index_structure
-    # or by rebuilding the expression.
-    
-    # Simple approach that works: since we just want to check symmetry,
-    # we can evaluate both versions and compare.
-    # For a proper swap, we use the xreplace method on the indices.
-    try:
-        result = expr.xreplace({idx1: tmp, -idx1: -tmp,
-                                idx2: idx1, -idx2: -idx1,
-                                tmp: idx2, -tmp: -idx2})
-        return result
-    except:
-        pass
-    
-    return expr  # fallback: return unchanged (will cause symmetry check to fail)
-
-
-def _cyclic_perm_indices(expr, i1, i2, i3):
-    """Cyclically permute three free indices: (i1,i2,i3) -> (i2,i3,i1)."""
-    tmp, = fresh_indices(1)
-    try:
-        result = expr.xreplace({i1: tmp, -i1: -tmp,
-                                i2: i1, -i2: -i1,
-                                i3: i2, -i3: -i2,
-                                tmp: i3, -tmp: -i3})
-        return result
-    except:
-        return expr
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +427,7 @@ def compute_h2_violation(E_expr, E_indices):
     With the Hilbert procedure and no optional EOM terms, Butcher's claim
     is Z = 0 at every order — verified empirically by the closure tests.
     On other paths (Belinfante, optional EOM additions) Z can be nonzero,
-    in which case the EOM-correction machinery in `compute_eom_correction`
+    in which case `decompose_against_eoms` (bootstrap.eom_decompose)
     decomposes it.
 
     Args:
@@ -512,13 +435,18 @@ def compute_h2_violation(E_expr, E_indices):
         E_indices: (mu, nu) — the free indices of E_expr.
 
     Returns:
-        Z: tensor expression with four free indices (mu, nu, alpha, beta),
-           or S.Zero if E_expr is zero.
+        (Z, (alpha, beta)):
+            Z: tensor expression with four free indices (mu, nu, alpha, beta),
+               or S.Zero if E_expr is zero.
+            (alpha, beta): the h-style index pair generated for Z. Z's free
+               indices are then (mu, nu, alpha, beta). Returned so callers
+               can form the X = -1/(2(n+1)) Y · h_{alpha beta} correction
+               without re-discovering them.
     """
     from bootstrap.jet import total_derivative
 
     if E_expr == S.Zero:
-        return S.Zero
+        return S.Zero, (None, None)
 
     mu, nu = E_indices
     alpha, beta = fresh_indices(2)
@@ -542,23 +470,4 @@ def compute_h2_violation(E_expr, E_indices):
     Z = 2 * (dE_mn_h - dE_ab_h) - dh_piece
     if isinstance(Z, TensExpr):
         Z = canon(Z)
-    return Z
-
-
-def compute_eom_correction(Z_expr, n):
-    """Given the H2 violation Z, compute the EOM correction terms.
-    
-    X^{mu nu}_{kl} = -1/(2(n+1)) * Y^{mu nu rho sigma}_{kl} * h_{rho sigma}
-    X^{mu nu}_{phi_i} = -1/(2(n+1)) * Y^{mu nu rho sigma}_{phi_i} * h_{rho sigma}
-    
-    where Z = Y_{h} * E_h^{(0)} + sum_i Y_{phi_i} * E_{phi_i}^{(0)}
-    
-    Args:
-        Z_expr: the H2 violation tensor
-        n: the order in h
-        
-    Returns:
-        dict mapping field names to their X coefficient tensors
-    """
-    # TODO: implement decomposition of Z into EOM-proportional pieces
-    return {}
+    return Z, (alpha, beta)

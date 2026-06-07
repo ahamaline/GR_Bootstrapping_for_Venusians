@@ -42,7 +42,7 @@ def compare(L, label, expect_zero_diff=True):
     diff = canon(T_sym_re - T_H)
     print(f"  T_SymBel - T_H: {n(diff)} terms"
           + ("" if not expect_zero_diff else " (expect 0)"))
-    if diff != S.Zero and n(diff) <= 6:
+    if diff != S.Zero and n(diff) <= 60:
         show("    diff", diff)
 
 

@@ -17,13 +17,13 @@ and for the Helmholtz conditions.
 
 from functools import lru_cache
 
-from sympy import S, Rational, Add
+from sympy import S, Rational
 from sympy.tensor.tensor import (
-    TensAdd, TensMul, TensExpr, TensorHead, TensorIndex, Tensor
+    TensAdd, TensMul, TensExpr, Tensor
 )
 from bootstrap.tensor_algebra import (
-    Lorentz, metric, h, dh, ddh,
-    fresh_indices, canon, _JET_HIERARCHY, _matter_fields
+    metric, h, dh, ddh,
+    canon, _JET_HIERARCHY,
 )
 
 
@@ -184,8 +184,6 @@ def _jet_derivative_of_factor(factor, wrt_head, wrt_indices):
     # Generate all permutations consistent with the symmetries.
     # For each symmetric group, we need to sum over all permutations
     # of the wrt_indices within that group, divided by the group size.
-    from itertools import permutations as iterperms
-    
     # Compute the symmetrization factor and the set of index permutations
     perms, normalization = _symmetric_permutations(wrt_indices, sym_groups)
     

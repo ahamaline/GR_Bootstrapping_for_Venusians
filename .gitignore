@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Scratch / diagnostic convention: root-level files prefixed with "_" are
+# throwaway (one-off diagnostics, run logs, pickled checkpoints). Kept local,
+# never shared. Real modules / tests / docs never start with "_".
+/_*
+
 # cProfile dumps (we generate these during performance work)
 *.prof
 
@@ -20,6 +25,7 @@ __pycache__/
 
 # Per-user Claude Code settings (local-only by convention)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Paper source and the GR.fr Mathematica notebook — kept locally but not
 # part of the shared repo (the code is what's being shared).

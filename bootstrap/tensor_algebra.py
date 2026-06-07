@@ -16,7 +16,7 @@ from sympy.tensor.tensor import (
     TensorIndexType, TensorHead, TensorIndex, TensorSymmetry,
     tensor_indices, TensAdd, TensMul, TensExpr, Tensor, TensorManager
 )
-from sympy import Rational, S, Symbol, Add, Mul, Number
+from sympy import Rational, S, Symbol, Add, Mul, Number, cancel, default_sort_key
 from functools import lru_cache
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,9 @@ def fresh_indices(n):
     generated ones.
     """
     global _index_counter
+    if n == 0:
+        return ()  # zero fresh indices (e.g. relabelling a scalar's empty
+                   # EOM-direction pair); tensor_indices('') would raise.
     names = ' '.join(f'_i{_index_counter + k}' for k in range(n))
     _index_counter += n
     result = tensor_indices(names, Lorentz)
@@ -69,6 +72,25 @@ def named_indices(names):
     if isinstance(result, TensorIndex):
         return (result,)
     return result
+
+def swap_free_indices(expr, idx1, idx2):
+    """Swap two free indices in a tensor expression (both signs).
+
+    A formal relabelling: every occurrence of idx1 becomes idx2 and vice
+    versa, routed through a fresh temporary index to avoid clashes. Does
+    NOT canonicalize — callers that compare expressions should canon the
+    result themselves.
+    """
+    if expr == S.Zero or not hasattr(expr, 'substitute_indices'):
+        return expr
+    tmp, = fresh_indices(1)
+    return expr.substitute_indices(
+        (idx1, tmp), (-idx1, -tmp)
+    ).substitute_indices(
+        (idx2, idx1), (-idx2, -idx1)
+    ).substitute_indices(
+        (tmp, idx2), (-tmp, -idx2)
+    )
 
 # ---------------------------------------------------------------------------
 # Symmetry specifications
@@ -149,13 +171,20 @@ def register_scalar_field(name):
     phi = TensorHead(name, [], TensorSymmetry.fully_symmetric(0))
     dphi = TensorHead(f'd{name}', [Lorentz], TensorSymmetry.no_symmetry(1))
     ddphi = TensorHead(f'dd{name}', [Lorentz, Lorentz], _sym2)
+    # Third derivative: only needed so total_derivative(ddphi) is defined,
+    # e.g. for the identically-conserved check on a nonminimal-coupling
+    # improvement (the matter analogue of dddh for gravity conservation).
+    dddphi = TensorHead(f'ddd{name}', [Lorentz] * 3,
+                        TensorSymmetry.fully_symmetric(3))
 
     _JET_HIERARCHY[phi] = {'child': dphi, 'n_field_indices': 0}
     _JET_HIERARCHY[dphi] = {'parent': phi, 'child': ddphi, 'n_field_indices': 0}
-    _JET_HIERARCHY[ddphi] = {'parent': dphi, 'n_field_indices': 0}
+    _JET_HIERARCHY[ddphi] = {'parent': dphi, 'child': dddphi, 'n_field_indices': 0}
+    _JET_HIERARCHY[dddphi] = {'parent': ddphi, 'n_field_indices': 0}
 
     NATURAL_POSITIONS[dphi] = ['down']
     NATURAL_POSITIONS[ddphi] = ['down', 'down']
+    NATURAL_POSITIONS[dddphi] = ['down', 'down', 'down']
 
     info = {'field': phi, 'dfield': dphi, 'ddfield': ddphi, 'rank': 0, 'name': name}
     _matter_fields[name] = info
@@ -177,14 +206,20 @@ def register_vector_field(name):
     # direct_product(1, 2) = single index + symmetric pair
     _sym_vec_dd = TensorSymmetry.direct_product(1, 2)
     ddA = TensorHead(f'dd{name}', [Lorentz, Lorentz, Lorentz], _sym_vec_dd)
+    # Third derivative (field index + symmetric triple): only needed so
+    # total_derivative(ddA) is defined for the conservation check on a
+    # nonminimal-coupling improvement (matches dddphi / the upstairs dddV).
+    dddA = TensorHead(f'ddd{name}', [Lorentz] * 4, TensorSymmetry.direct_product(1, 3))
 
     _JET_HIERARCHY[A] = {'child': dA, 'n_field_indices': 1}
     _JET_HIERARCHY[dA] = {'parent': A, 'child': ddA, 'n_field_indices': 1}
-    _JET_HIERARCHY[ddA] = {'parent': dA, 'n_field_indices': 1}
+    _JET_HIERARCHY[ddA] = {'parent': dA, 'child': dddA, 'n_field_indices': 1}
+    _JET_HIERARCHY[dddA] = {'parent': ddA, 'n_field_indices': 1}
 
     NATURAL_POSITIONS[A] = ['down']
     NATURAL_POSITIONS[dA] = ['down', 'down']
     NATURAL_POSITIONS[ddA] = ['down', 'down', 'down']
+    NATURAL_POSITIONS[dddA] = ['down', 'down', 'down', 'down']
 
     info = {'field': A, 'dfield': dA, 'ddfield': ddA, 'rank': 1, 'name': name,
             'index_pos': 'down'}
@@ -210,14 +245,21 @@ def register_upstairs_vector_field(name):
     dV = TensorHead(f'd{name}', [Lorentz, Lorentz], TensorSymmetry.no_symmetry(2))
     _sym_vec_dd = TensorSymmetry.direct_product(1, 2)
     ddV = TensorHead(f'dd{name}', [Lorentz, Lorentz, Lorentz], _sym_vec_dd)
+    # Third derivative: field index + symmetric triple of derivative indices.
+    # Only needed so total_derivative(ddV) is defined, e.g. for the identically-
+    # conserved check on a nonminimal-coupling improvement (the vector analogue
+    # of dddphi / dddh).
+    dddV = TensorHead(f'ddd{name}', [Lorentz] * 4, TensorSymmetry.direct_product(1, 3))
 
     _JET_HIERARCHY[V] = {'child': dV, 'n_field_indices': 1}
     _JET_HIERARCHY[dV] = {'parent': V, 'child': ddV, 'n_field_indices': 1}
-    _JET_HIERARCHY[ddV] = {'parent': dV, 'n_field_indices': 1}
+    _JET_HIERARCHY[ddV] = {'parent': dV, 'child': dddV, 'n_field_indices': 1}
+    _JET_HIERARCHY[dddV] = {'parent': ddV, 'n_field_indices': 1}
 
     NATURAL_POSITIONS[V] = ['up']
     NATURAL_POSITIONS[dV] = ['up', 'down']
     NATURAL_POSITIONS[ddV] = ['up', 'down', 'down']
+    NATURAL_POSITIONS[dddV] = ['up', 'down', 'down', 'down']
 
     info = {'field': V, 'dfield': dV, 'ddfield': ddV, 'rank': 1, 'name': name,
             'index_pos': 'up'}
@@ -258,10 +300,6 @@ def order_in_h(expr):
     if isinstance(expr, (int, float, Number)):
         return 0
     if isinstance(expr, TensMul):
-        count = 0
-        for t in expr._tids if hasattr(expr, '_tids') else []:
-            pass
-        # Walk the tensor factors
         heads = _get_heads_from_tensmul(expr)
         h_heads = {h, dh, ddh}
         return sum(1 for hd in heads if hd in h_heads)
@@ -303,6 +341,106 @@ def filter_by_order(expr, n):
             return expr
         return S.Zero
 
+# ---------------------------------------------------------------------------
+# Spacetime dimension control
+# ---------------------------------------------------------------------------
+# The Lorentz TensorIndexType's `dim` attribute is what sympy fills in for
+# fully-contracted metric traces (η^μ_μ → dim). By default dim = Symbol('d')
+# so traces stay symbolic. To work at a concrete dimension (e.g. d=4 for
+# the traceless-T_M tests on Maxwell), call `set_dimension(4)` BEFORE any
+# matter-field registration or BootstrapState creation.
+
+
+def set_dimension(d):
+    """Globally fix the spacetime dimension by rebuilding the Lorentz
+    TensorIndexType and the gravitational jet variables.
+
+    Args:
+        d: either a concrete int (e.g. 4) or None to restore the default
+           symbolic Symbol('d').
+
+    Rebuilds the module-level Lorentz, metric, h, dh, ddh, dddh with the
+    requested dim, and refreshes _JET_HIERARCHY / NATURAL_POSITIONS to
+    point at the new heads.
+
+    **Import order matters.** Other bootstrap modules
+    (bootstrap_loop, eom_decompose, ...) bind their own local h/dh/ddh
+    via `from bootstrap.tensor_algebra import h, dh, ddh, ...` at
+    import time. If they're imported BEFORE set_dimension runs, they
+    will be bound to the original (Symbol('d')) heads and will then
+    mismatch anything built after the rebuild.
+
+    The required pattern for any script that needs a non-default dim:
+
+        # 1) Import set_dimension alone -- this is the first thing.
+        from bootstrap.tensor_algebra import set_dimension
+        set_dimension(4)
+        # 2) Only NOW import the rest. All these modules bind to the
+        #    just-rebuilt heads.
+        from bootstrap.tensor_algebra import h, register_vector_field
+        from bootstrap.bootstrap_loop import BootstrapState
+        ...
+
+    set_dimension also raises RuntimeError if any matter field is already
+    registered (those heads carry the old Lorentz and would silently
+    mismatch).
+    """
+    if _matter_fields:
+        raise RuntimeError(
+            f"set_dimension({d!r}) called after matter fields were already "
+            f"registered ({list(_matter_fields.keys())}). These fields carry "
+            f"the OLD Lorentz type and would mismatch the rebuilt gravitational "
+            f"heads. Call set_dimension before any register_*_field()."
+        )
+    new_dim = Symbol('d') if d is None else d
+
+    new_Lorentz = TensorIndexType('Lorentz', dummy_name='L', dim=new_dim)
+    new_metric = new_Lorentz.metric
+    new_h = TensorHead('h', [new_Lorentz, new_Lorentz], _sym2)
+    new_dh = TensorHead('dh', [new_Lorentz, new_Lorentz, new_Lorentz], _sym_dh)
+    new_ddh = TensorHead('ddh',
+                         [new_Lorentz, new_Lorentz, new_Lorentz, new_Lorentz],
+                         _sym_ddh)
+    new_dddh = TensorHead('dddh', [new_Lorentz] * 5, _sym_dddh)
+
+    g = globals()
+    g['Lorentz'] = new_Lorentz
+    g['metric'] = new_metric
+    g['h'] = new_h
+    g['dh'] = new_dh
+    g['ddh'] = new_ddh
+    g['dddh'] = new_dddh
+
+    _JET_HIERARCHY.clear()
+    _JET_HIERARCHY.update({
+        new_h: {'child': new_dh, 'n_field_indices': 2},
+        new_dh: {'parent': new_h, 'child': new_ddh, 'n_field_indices': 2},
+        new_ddh: {'parent': new_dh, 'child': new_dddh, 'n_field_indices': 2},
+        new_dddh: {'parent': new_ddh, 'n_field_indices': 2},
+    })
+    NATURAL_POSITIONS.clear()
+    NATURAL_POSITIONS.update({
+        new_h: ['down', 'down'],
+        new_dh: ['down', 'down', 'down'],
+        new_ddh: ['down', 'down', 'down', 'down'],
+    })
+
+
+def dimension():
+    """Return the current spacetime-dimension object used by the Lorentz
+    TensorIndexType — either `Symbol('d')` (default, symbolic) or a concrete
+    int if `set_dimension(N)` was called.
+
+    Use this anywhere you need the SAME `d` that fully-contracted metric
+    traces (η^μ_μ → dim) produce, e.g. when building a dimension-dependent
+    coupling like the conformal ξ(d) = (d−2)/(4(d−1)). Reconstructing your
+    own `Symbol('d', ...)` with assumptions will NOT compare equal to the
+    bare `Symbol('d')` the metric produces — so `d_yours − d_trace` won't
+    collapse to 0, and traceless-T_M detection silently fails.
+    """
+    return Lorentz.dim
+
+
 def canon(expr):
     """Canonicalize a tensor expression.
 
@@ -320,7 +458,28 @@ def canon(expr):
     workaround per-term; in the common case where there are no 0-index
     Tensor factors we fall through to the standard sympy path (which
     correctly does cross-term simplifications on a whole TensAdd).
+
+    Scalar-coefficient simplification (symbolic d only): canon_bp combines
+    like tensor structures but does NOT run rational-function simplification
+    on the scalar coefficients. With a symbolic spacetime dimension d and a
+    d-dependent coupling (e.g. the conformal ξ(d) = (d−2)/(4(d−1))), the
+    coefficients become rational functions of d that may be identically zero
+    yet survive as unsimplified sums — inflating term counts and defeating
+    every `== S.Zero` gate (traceless-T_M, H2 Z=0, EL self-consistency,
+    E_diff=0). After canonicalizing structure, we therefore run `cancel` on
+    each term's coefficient and drop the ones that vanish. This pass is GATED
+    on d being symbolic, so pure-gravity and set_dimension(N) runs (where the
+    dimension is a concrete int) pay nothing.
     """
+    result = _canon_impl(expr)
+    return _simplify_d_coeffs(result)
+
+
+def _canon_impl(expr):
+    """Structural canonicalization (dummy renaming + symmetry + metric
+    contraction), without the d-coefficient simplification pass. Recursion
+    stays inside this function so the (gated) coefficient pass runs only once,
+    on the fully-combined top-level result returned by `canon`."""
     if isinstance(expr, (int, float)) or expr == S.Zero:
         return expr
     if not isinstance(expr, TensExpr):
@@ -335,7 +494,7 @@ def canon(expr):
     if isinstance(expr, TensMul) and any(isinstance(a, TensAdd) for a in expr.args):
         expanded = expr.expand()
         if expanded is not expr:
-            return canon(expanded)
+            return _canon_impl(expanded)
 
     # Workaround path: 0-index Tensor factors are present somewhere.
     # Distribute over TensAdd. When a recursive canon call returns a
@@ -345,7 +504,7 @@ def canon(expr):
     if isinstance(expr, TensAdd):
         new_terms = []
         for t in expr.args:
-            ct = canon(t)
+            ct = _canon_impl(t)
             if ct is S.Zero or ct == 0:
                 continue
             if isinstance(ct, TensAdd):
@@ -372,18 +531,83 @@ def canon(expr):
             # If the stripped form still somehow contains 0-index tensors
             # (e.g. nested TensAdd survived), recurse via canon.
             if _has_zero_index_tensor(stripped):
-                stripped_canon = canon(stripped)
+                stripped_canon = _canon_impl(stripped)
             else:
                 stripped_canon = _canon_indexed(stripped)
         else:
             stripped_canon = stripped
         result = stripped_canon
-        for st in removed:
+        # Re-multiply the stripped 0-index Tensors in a CANONICAL ORDER. They
+        # are commuting scalars (e.g. matter fields phi1, phi2), but sympy's
+        # TensMul does not reorder 0-index Tensors, and this manual re-multiply
+        # preserves source order — so phi1*phi2 and phi2*phi1 would stay
+        # distinct and fail to combine/cancel in a later TensAdd (e.g. a trace
+        # term phi1*phi2 - phi2*phi1 that is identically zero). Sorting by a
+        # stable key normalizes both to the same form.
+        for st in sorted(removed, key=default_sort_key):
             result = result * st
         return result
 
     # Single 0-index Tensor — nothing to canonicalize on.
     return expr
+
+
+def _simplify_d_coeffs(expr):
+    """Run `cancel` on each term's scalar coefficient and drop vanishing
+    terms. Gated on the spacetime dimension being symbolic — when
+    `set_dimension(N)` has fixed a concrete int dimension (or on the
+    pure-gravity path), there is no d Symbol to simplify and we return
+    `expr` untouched, so those hot paths pay nothing.
+
+    See `canon` for why this is necessary. Per-term we only invoke `cancel`
+    when the coefficient actually contains d, so d-free terms in an otherwise
+    d-dependent expression are also cheap.
+    """
+    d_sym = Lorentz.dim
+    if not isinstance(d_sym, Symbol):
+        return expr  # concrete dimension → no rational-in-d coefficients
+    if not isinstance(expr, TensExpr):
+        # Bare scalar (rare at this layer): cancel if it mentions d.
+        if isinstance(expr, (int, float)):
+            return expr
+        return cancel(expr) if d_sym in getattr(expr, 'free_symbols', set()) else expr
+    # Fast path: if no coefficient anywhere mentions d, there is nothing to
+    # simplify. This keeps pure-gravity / d-free matter runs (which use the
+    # default symbolic d but never form d-rational coefficients) at the cost
+    # of a single free_symbols membership check.
+    if d_sym not in expr.free_symbols:
+        return expr
+
+    def _simp_coeff_term(term):
+        """Return term with its coefficient cancelled, or None if it vanishes."""
+        if isinstance(term, TensMul):
+            c = term.coeff
+            if d_sym not in c.free_symbols:
+                return term
+            cc = cancel(c)
+            if cc == S.Zero:
+                return None
+            if cc == c:
+                return term
+            return cc * term.nocoeff
+        # Bare Tensor (coeff 1) or other — no d-coefficient to simplify.
+        return term
+
+    if isinstance(expr, TensAdd):
+        kept = []
+        for term in expr.args:
+            st = _simp_coeff_term(term)
+            if st is None or st is S.Zero or st == 0:
+                continue
+            kept.append(st)
+        if not kept:
+            return S.Zero
+        if len(kept) == 1:
+            return kept[0]
+        return TensAdd(*kept)
+
+    st = _simp_coeff_term(expr)
+    return S.Zero if st is None else st
 
 
 def _strip_zero_index_recursive(expr):
