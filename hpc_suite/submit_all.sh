@@ -68,6 +68,7 @@ for row in "${RUNS[@]}"; do
 #PBS -j oe
 #PBS -o logs/${name}.pbslog
 cd \$PBS_O_WORKDIR
+source env_setup.sh          # modern Python (>=3.9) + recent sympy; see env_setup.sh
 export PYTHONHASHSEED=0
 python -u runs/${name}.py > logs/${name}.log 2>&1
 EOF

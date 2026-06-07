@@ -24,6 +24,28 @@ local smoke; omit it for the full HPC run.
 | 9 | `09_traceless_kitchen_sink_hilbert` | conformal charged scalar+massless charged vector+φ²V², Hilbert | 4 | 5 | traceless detection on rich complex matter |
 | 10 | `10_traceless_kitchen_sink_injection_hilbert` | #9 + dual injection, Hilbert | 4 | 4 | traceless recovery on rich complex matter |
 
+## Environment ⚠ (do this first)
+
+The code needs **Python ≥ 3.9 with a recent sympy** (match your laptop's sympy
+version for identical tensor-canon behavior). Zeus's default `python3` is **3.6**
+(EOL) — a `pip install sympy` there pulls an *ancient* sympy (~1.5) whose tensor
+module raises `ValueError: Repeated index` on dummy collisions that modern sympy
+auto-renames, so every run crashes immediately.
+
+```bash
+module avail python                       # find a newer interpreter
+module load python/3.11                   # (or whatever it's called)
+python -m venv ~/Venus_venv
+source ~/Venus_venv/bin/activate
+pip install --upgrade pip
+pip install sympy==<your-laptop-version>  # python -c "import sympy;print(sympy.__version__)" on the laptop
+```
+
+Then edit the two `module load` / `source ...venv...` lines in **`env_setup.sh`**
+to match — every PBS job `source`s it, because compute nodes start from the
+default (3.6) environment. `env_setup.sh` prints the python/sympy versions into
+each log and asserts Python ≥ 3.9, so a misconfigured env fails loudly up front.
+
 ## Submitting (PBS — Zeus)
 
 `submit_all.sh` qsubs one 1-core job per run (PBS Pro `select=1:ncpus=1`), each
