@@ -328,6 +328,62 @@ rationale, and the no-resume / partial-completion behavior (an overrun keeps the
 completed orders in the log; the real high-`n_max` cost is the up-front
 `L_ref^(0..n_max+1)` precompute). See `hpc_suite/README.md` to submit.
 
+### Performance: the field-redef bottleneck (branch `optimize-field-redef`; #1+#2 done & validated, #3 pending)
+
+The first real Zeus run exposed a bottleneck: run #5 (tagged-optional Belinfante
+scalar) sat ~15 h on order 1. It is **not** a cluster/resource problem — same
+sympy 1.14, mem fine, and the **laptop reproduces it identically**. Root cause is
+the **h-field-redefinition substitution** in `_substitute_field`
+(`bootstrap/bootstrap_loop.py`): substituting `h → h + f` builds
+`Π_i (fac_i + rep_i)` over all factors, `.expand()`s the full **`2^p`** binomial
+(p = number of h-factors), `canon`s every term, **then** truncates by order — so
+the high-order `L_ref^(k)` (many h-factors) detonate. The φ-redef is cheap; only
+h is the wall. (Eliminated along the way, all red herrings: sympy version,
+`PYTHONHASHSEED=0`, and missing gmpy/flint — the laptop has none of those and is
+still fast.)
+
+Measured h-redef @order 1 of #5 (n_max = 2/3/4): pure-Python **280 / 1493 /
+14194 s** (~9.5×/order, worse-than-exponential). `python-flint` + `gmpy2`
+(`GROUND_TYPES=flint`) buy only a **~2× constant factor** (127 / 851 s) — worth
+installing on Zeus, but not the cure.
+
+Three fixes (see memory `project_field_redef_optimization.md` for the full
+recipe). **#1 and #2 are implemented + validated; #3 pending:**
+1. **Cache `df`/`ddf` once per redef** — *done*. `_build_deriv_cache` differentiates
+   `f` ONCE against template indices; `_apply_one_field_redef` builds it once and
+   passes `deriv_cache=` into the k-loop; `_replacement_for` re-indexes the cached
+   template per (d/dd)field occurrence (fresh dummies + metric contraction)
+   instead of re-running `_total_derivative_at`. Diff and free-index relabel
+   commute → exact to canon. Adds **~1.5×** on the h-redef on top of #2
+   (**12 / 54 / 198 s** at n_max = 2/3/4 under flint, vs #2-only 20/76/298).
+2. **Order-bounded substitution** — *the cure, done*. Generate only subsets of the
+   substitutable factors of size `0..j_max`, with
+   `j_max = ⌊(target_order − c)/δ⌋`, `c = order_in_h(term)`,
+   `δ = order_in_h(f) − (1 if field is h else 0)` (h-redef order-n f adds n−1;
+   matter adds n; always ≥ 1 — truly-linear redefs are forbidden). Keep two
+   per-term counts distinct: `c` = h-expansion order (cutoff) vs `p` =
+   **occurrences of the substituted field** (matter multiplicity, ≠ c). Skip
+   building reps when `j_max = 0`. **~48×** (20/76/298 s at n_max 2/3/4, scaling
+   9.5×→3.8×/order). Combined #1+#2 vs the original pure-Python: **14194 s → 198 s
+   (~72×)** at n_max = 4.
+3. **Periodic `canon` while accumulating** big sums (EM, Z, Ψ, redef) — distinct
+   dummies prevent merging until `canon`, so the term list swells RAM and the
+   working set; fold every ~50–100 pending terms. Lowest priority, measured,
+   after #2; helps the other builders too. **Not yet done.**
+
+**Validation of #1+#2:** (a) exact A/B — cached/order-bounded result == direct
+full-binomial reference, to canon, on both single-substitution
+(`tests/_ab_deriv_cache.py`) and the **multi-substitution `j ≥ 2`** path
+(`tests/_ab_multisub.py`; the regression suite alone barely drives `j_max > 1`,
+so this bespoke check was needed); (b) 28 regression tests PASS covering every
+redef-stress path (Belinfante, optional-EOM, conformal closure incl. order-3);
+(c) `conformal_order3_lref_closure` went from a 40-min-cap timeout to a clean 2 h
+pass. Profiling probes are gitignored scratch under `tests/_*` and `/_*`.
+
+**Deploy:** `python-flint` + `gmpy2` recommended (`GROUND_TYPES=flint`, ~2× more);
+`hpc_suite/submit_fast.sh` submits suffix-tagged parallel re-runs (defaults to
+the redef-bound #5/#7) without clobbering still-running old jobs.
+
 ## The 6-step bootstrap (paper §4, quick reference)
 
 For each order n = 0, 1, 2, ...:

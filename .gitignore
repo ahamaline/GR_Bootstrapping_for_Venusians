@@ -7,6 +7,7 @@ __pycache__/
 # throwaway (one-off diagnostics, run logs, pickled checkpoints). Kept local,
 # never shared. Real modules / tests / docs never start with "_".
 /_*
+tests/_*
 
 # cProfile dumps (we generate these during performance work)
 *.prof

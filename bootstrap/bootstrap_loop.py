@@ -21,6 +21,8 @@ bootstrap-derived L^{(n+1)} is checked against L_ref^{(n+1)} — see
 `_verify_vs_L_ref` for the full flow.
 """
 
+import itertools
+
 from sympy import S, Rational, Symbol
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 
@@ -96,7 +98,43 @@ def _total_derivative_at(expr, target_deriv_idx):
     return relabel
 
 
-def _substitute_field(L, field_info, f_expr, f_indices, target_order):
+def _build_deriv_cache(field_info, f_expr, f_indices):
+    """Precompute the derivative templates df = ∂f and ddf = ∂∂f ONCE for a
+    given redef (optimization #1).
+
+    `_substitute_field` substitutes field → f and propagates to dfield/ddfield
+    factors via the chain rule, so every (d/dd)field OCCURRENCE needs ∂f / ∂∂f
+    re-indexed onto that factor's indices. The old code re-ran the (expensive)
+    `_total_derivative_at` on every occurrence; here we differentiate f just
+    once against fixed TEMPLATE indices and let `_replacement_for` *re-index*
+    the result per occurrence (a cheap `substitute_indices` + canon) instead.
+
+    Differentiation and free-index relabeling commute (the total derivative is
+    index-equivariant), so reindexing the template is identical to
+    differentiating the reindexed f, up to canon — verified by the A/B check in
+    `_ab_check_deriv_cache.py`.
+
+    Returns a dict with the template free indices and the canonicalized df/ddf,
+    or None when f carries no order in h beyond what makes derivatives matter
+    (callers treat None as "fall back to direct differentiation").
+    """
+    tmpl_fields = tuple(fresh_indices(1)[0] for _ in f_indices)
+    tmpl_d1 = fresh_indices(1)[0]
+    tmpl_d2 = fresh_indices(1)[0]
+    f_tmpl = _reindex_tensor(f_expr, f_indices, tmpl_fields) if f_indices else f_expr
+    df_tmpl = _total_derivative_at(f_tmpl, tmpl_d1)
+    ddf_tmpl = _total_derivative_at(df_tmpl, tmpl_d2) if df_tmpl != S.Zero else S.Zero
+    return {
+        'tmpl_fields': tmpl_fields,
+        'tmpl_d1': tmpl_d1,
+        'tmpl_d2': tmpl_d2,
+        'df': df_tmpl,
+        'ddf': ddf_tmpl,
+    }
+
+
+def _substitute_field(L, field_info, f_expr, f_indices, target_order,
+                      deriv_cache=None):
     """Substitute field (head, dhead, ddhead) -> field + f everywhere in L.
     Propagate via chain rule (dfield gets df = total_derivative(f);
     ddfield gets ddf). Re-expand and keep terms with order_in_h <= target_order.
@@ -114,6 +152,12 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order):
             factor's actual indices.
         f_indices: tuple of free indices on f_expr (matter natural rank).
         target_order: keep only terms with order_in_h ≤ this value.
+        deriv_cache: optional precomputed df/ddf templates from
+            `_build_deriv_cache` (optimization #1). When None it is built once
+            here, so every (d/dd)field occurrence re-indexes the cached template
+            instead of re-differentiating f. Callers applying the SAME redef to
+            several L's (e.g. `_apply_one_field_redef` over its k-loop) should
+            build it once and pass it in to share the cache across calls.
 
     Returns: substituted L, expanded, canonicalized, and truncated.
     """
@@ -124,6 +168,14 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order):
 
     if L == S.Zero:
         return S.Zero
+
+    if deriv_cache is None:
+        deriv_cache = _build_deriv_cache(field_info, f_expr, f_indices)
+    df_tmpl = deriv_cache['df']
+    ddf_tmpl = deriv_cache['ddf']
+    tmpl_fields = deriv_cache['tmpl_fields']
+    tmpl_d1 = deriv_cache['tmpl_d1']
+    tmpl_d2 = deriv_cache['tmpl_d2']
 
     def _replacement_for(fac):
         """Compute the replacement expression for a Tensor factor `fac`,
@@ -152,19 +204,24 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order):
             return result
         elif head_of_fac == dhead:
             # dfield(field..., deriv) → ∂_{deriv} f reindexed at field.
+            # Re-index the CACHED df template (optimization #1) instead of
+            # re-differentiating: map the template's free indices onto fresh
+            # dummies, then metric-contract those onto fac's actual indices
+            # (same fresh-dummy trick the direct path used, so no clash with
+            # the parent term's L_x dummies).
             fac_idxs = list(fac.get_indices())
             field_idxs = fac_idxs[:rank]
             deriv_idx = fac_idxs[rank]
-            # First reindex f to fresh field targets, then differentiate
-            # against fresh deriv, then contract metrics onto fac's indices.
+            if df_tmpl == S.Zero:
+                return S.Zero
             fresh_fields = tuple(fresh_indices(1)[0] for _ in f_indices)
-            f_with_fresh = _reindex_tensor(f_expr, f_indices, fresh_fields)
-            # Differentiate.
-            df = _total_derivative_at(f_with_fresh, deriv_idx)
-            # Contract fresh_fields onto field_idxs via metric.
+            fresh_d = fresh_indices(1)[0]
+            df = _reindex_tensor(
+                df_tmpl, tmpl_fields + (tmpl_d1,), fresh_fields + (fresh_d,))
             result = df
             for fresh_idx, fac_idx in zip(fresh_fields, field_idxs):
                 result = result * metric(-fresh_idx, fac_idx)
+            result = result * metric(-fresh_d, deriv_idx)
             if isinstance(result, TensExpr):
                 result = canon(result)
             return result
@@ -172,18 +229,55 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order):
             fac_idxs = list(fac.get_indices())
             field_idxs = fac_idxs[:rank]
             d1, d2 = fac_idxs[rank], fac_idxs[rank + 1]
+            if ddf_tmpl == S.Zero:
+                return S.Zero
             fresh_fields = tuple(fresh_indices(1)[0] for _ in f_indices)
-            f_with_fresh = _reindex_tensor(f_expr, f_indices, fresh_fields)
-            df = _total_derivative_at(f_with_fresh, d1)
-            ddf = _total_derivative_at(df, d2) if df != S.Zero else S.Zero
+            fresh_d1 = fresh_indices(1)[0]
+            fresh_d2 = fresh_indices(1)[0]
+            ddf = _reindex_tensor(
+                ddf_tmpl,
+                tmpl_fields + (tmpl_d1, tmpl_d2),
+                fresh_fields + (fresh_d1, fresh_d2))
             result = ddf
             for fresh_idx, fac_idx in zip(fresh_fields, field_idxs):
                 result = result * metric(-fresh_idx, fac_idx)
+            result = result * metric(-fresh_d1, d1) * metric(-fresh_d2, d2)
             if isinstance(result, TensExpr):
                 result = canon(result)
             return result
         return None
 
+    # --- order-bounded substitution (optimization #2) -----------------------
+    # Replacing one (d/dd)field factor by f raises the term's h-EXPANSION order
+    # (order_in_h) by
+    #     delta = order_in_h(f) - (1 if the field is h else 0)
+    # since an h factor is itself order-1 while a matter factor is order-0, and
+    # f's derivatives df/ddf keep f's h-order. With the term at order c and the
+    # cutoff at target_order, at most
+    #     j_max = floor((target_order - c) / delta)
+    # factors may be replaced before the result exceeds the cutoff. We enumerate
+    # only those subsets, replacing the old `prod_i (fac_i + rep_i)` binomial
+    # (all 2^p terms canon'd, then truncated) by sum_{j<=j_max} C(p,j) terms --
+    # exponential -> polynomial in p, the dominant cost in high-n_max redefs.
+    #
+    # Two distinct per-term counts, NOT to be conflated (see matter case):
+    #   c = order_in_h(term)          -- the h-EXPANSION order (the cutoff axis)
+    #   p = len(replaceable_facs)     -- OCCURRENCES of the substituted field
+    #                                    (for matter, its own multiplicity, e.g.
+    #                                     2 for a phi^2 / dphi.dphi term -- this
+    #                                     is generally != c)
+    if isinstance(f_expr, TensAdd):
+        f_order = min(order_in_h(t) for t in f_expr.args)
+    else:
+        f_order = order_in_h(f_expr)
+    delta = f_order - (1 if head is h else 0)
+    if delta < 1:
+        # Truly-linear (order-preserving) redef: nothing self-truncates, so the
+        # substitution count is unbounded. We forbid these; fall back to the
+        # full expansion if one ever slips through.
+        delta = None
+
+    heads_set = {head, dhead, ddhead}
     result_terms = []
     for term in (L.args if isinstance(L, TensAdd) else [L]):
         if isinstance(term, TensMul):
@@ -192,19 +286,39 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order):
             coeff, factors = S.One, [term]
         else:
             continue
-        # Build the product (factor + replacement) per factor.
-        product = coeff
+        c = order_in_h(term)
+        # Cheap pass: identify the substitutable factors (head match) by
+        # COUNTING per-term occurrences -- do NOT yet build the (expensive,
+        # derivative-bearing) replacements.
+        replaceable_facs = []
+        fixed = coeff
         for fac in factors:
-            rep = _replacement_for(fac)
-            if rep is not None and rep != S.Zero:
-                product = product * (fac + rep)
+            if _get_component(fac) in heads_set:
+                replaceable_facs.append(fac)
             else:
-                product = product * fac
-        if isinstance(product, TensExpr):
-            product = product.expand()
-            product = canon(product)
-        if product != S.Zero:
-            result_terms.append(product)
+                fixed = fixed * fac
+        p = len(replaceable_facs)
+        if delta is None:
+            j_max = p
+        else:
+            j_max = max(0, min((target_order - c) // delta, p))
+        # j = 0 is always the original term, already canonical -- keep as-is.
+        result_terms.append(term)
+        if p == 0 or j_max == 0:
+            continue
+        # Only now (we will actually use them) build the replacements.
+        reps = [_replacement_for(fac) for fac in replaceable_facs]
+        for j in range(1, j_max + 1):
+            for subset in itertools.combinations(range(p), j):
+                ss = set(subset)
+                product = fixed
+                for i in range(p):
+                    product = product * (reps[i] if i in ss else replaceable_facs[i])
+                if isinstance(product, TensExpr):
+                    product = product.expand()
+                    product = canon(product)
+                if product != S.Zero:
+                    result_terms.append(product)
 
     if not result_terms:
         return S.Zero
@@ -212,7 +326,9 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order):
     if isinstance(result, TensExpr):
         result = canon(result)
 
-    # Truncate at target_order.
+    # Safety truncation: with a homogeneous f the subset bound is exact, but a
+    # non-homogeneous f (f_order = MIN over its terms) can still emit a few
+    # over-target stragglers; drop them here.
     truncated_terms = []
     for term in (result.args if isinstance(result, TensAdd) else [result]):
         if order_in_h(term) <= target_order:
@@ -1535,12 +1651,16 @@ class BootstrapState(TracelessRecoveryMixin):
         is_h = (field_info['field'] is h)
         # +1 over the naive bound: we need L_ref through order n_max+1.
         k_max_sub = self.n_max - n + (2 if is_h else 1)
+        # Optimization #1: differentiate f to df/ddf ONCE for this redef and
+        # share the templates across every substituted L_ref^(k) below.
+        deriv_cache = _build_deriv_cache(field_info, f_expr, f_indices)
         substituted = {}
         for k in range(0, k_max_sub + 1):
             L_k = self.L_ref.get(k, S.Zero)
             L_k = _substitute_field(
                 L_k, field_info, f_expr, f_indices,
                 target_order=self.n_max + 1,
+                deriv_cache=deriv_cache,
             )
             substituted[k] = L_k
 
