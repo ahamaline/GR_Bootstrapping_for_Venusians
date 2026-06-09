@@ -26,11 +26,12 @@ local smoke; omit it for the full HPC run.
 
 ## Environment ⚠ (do this first)
 
-The code needs **Python ≥ 3.9 with a recent sympy** (match your laptop's sympy
-version for identical tensor-canon behavior). Zeus's default `python3` is **3.6**
-(EOL) — a `pip install sympy` there pulls an *ancient* sympy (~1.5) whose tensor
-module raises `ValueError: Repeated index` on dummy collisions that modern sympy
-auto-renames, so every run crashes immediately.
+The code needs **Python ≥ 3.9 with sympy 1.14** — the version this suite was
+developed and validated against; match it for identical tensor-canon behavior.
+Zeus's default `python3` is **3.6** (EOL) — a `pip install sympy` there pulls an
+*ancient* sympy (~1.5) whose tensor module raises `ValueError: Repeated index`
+on dummy collisions that modern sympy auto-renames, so every run crashes
+immediately.
 
 ```bash
 module avail python                       # find a newer interpreter
@@ -38,8 +39,18 @@ module load python/3.11                   # (or whatever it's called)
 python -m venv ~/Venus_venv
 source ~/Venus_venv/bin/activate
 pip install --upgrade pip
-pip install sympy==<your-laptop-version>  # python -c "import sympy;print(sympy.__version__)" on the laptop
+pip install sympy==1.14
+pip install python-flint gmpy2            # recommended — see below
 ```
+
+**Recommended: `python-flint` + `gmpy2`.** With these installed sympy switches
+its rational-arithmetic backend to FLINT (`GROUND_TYPES=flint`; verify with
+`python -c "from sympy.polys.domains import GROUND_TYPES; print(GROUND_TYPES)"`),
+giving a ~2× constant-factor speedup on the multivariate-rational coefficient
+work (symbolic `d`, optional-EOM tags) that dominates these runs. On Linux
+x86-64 both ship manylinux wheels that bundle FLINT/GMP — no system libs or
+compiler needed. `env_setup.sh` echoes the active `GROUND_TYPES` into each job
+log so you can confirm per run.
 
 Then edit the two `module load` / `source ...venv...` lines in **`env_setup.sh`**
 to match — every PBS job `source`s it, because compute nodes start from the
@@ -58,6 +69,19 @@ cd hpc_suite
 mkdir -p logs
 bash submit_all.sh            # qsub all 10
 bash submit_all.sh 1 4 9      # qsub only runs 1, 4, 9
+```
+
+**Re-running on optimized code, in parallel with old jobs** — use
+`submit_fast.sh`. It is identical to `submit_all.sh` but tags every output with
+`$SUFFIX` (default `_fast`) so it does **not** clobber the `logs/NAME.log` of a
+still-running old job, and it defaults to the two runs that were redef-bound on
+the old code (#5, #7). Already-running jobs loaded the old code at launch and
+are unaffected by a `git pull`, so the new fast jobs run safely alongside them.
+
+```bash
+bash submit_fast.sh                       # runs 5 and 7 -> logs/NAME_fast.log
+bash submit_fast.sh 5 7 8                 # explicit selection
+SUFFIX=_opt bash submit_fast.sh 1 4 5 6 7 # custom output tag
 ```
 
 **Queue assignment** (in the `RUNS` table at the top of `submit_all.sh`):

@@ -71,10 +71,23 @@ applies it, and re-verifies.
 
 ## Quick start
 
-You only need Python ≥ 3.9 and SymPy:
+You only need Python ≥ 3.9 and **SymPy 1.14** — the version the code is
+developed and validated against (other versions may canonicalize tensor
+expressions differently):
 
 ```bash
-pip install sympy
+pip install sympy==1.14
+```
+
+**Recommended (especially for high-order / HPC runs):** also install
+`python-flint` and `gmpy2`. SymPy then uses the FLINT backend for its rational
+arithmetic (`GROUND_TYPES=flint`; check with
+`python -c "from sympy.polys.domains import GROUND_TYPES; print(GROUND_TYPES)"`),
+a ~2× constant-factor speedup on the symbolic-coefficient work that dominates
+the higher orders. On Linux/macOS/Windows x86-64 both ship prebuilt wheels:
+
+```bash
+pip install python-flint gmpy2
 ```
 
 Then run one of the examples:

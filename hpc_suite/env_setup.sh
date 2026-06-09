@@ -16,8 +16,14 @@ module load python/3.11                       # <-- set to `module avail python`
 source "$HOME/Venus_venv/bin/activate"        # <-- venv built with that Python (recent sympy)
 
 # Sanity (printed into the job log): fail loudly if Python is too old.
+# Also report sympy's GROUND_TYPES so the log confirms whether the fast
+# rational backend is active. For the optimized runs, install it once into the
+# venv:  pip install python-flint gmpy2   (Linux wheels; GROUND_TYPES -> flint,
+# a ~2x constant factor on top of the #1/#2 redef speedups).
 python - <<'PY'
 import sys, sympy
-print(f"[env] python {sys.version.split()[0]}, sympy {sympy.__version__}", flush=True)
+from sympy.polys.domains import GROUND_TYPES
+print(f"[env] python {sys.version.split()[0]}, sympy {sympy.__version__}, "
+      f"GROUND_TYPES={GROUND_TYPES}", flush=True)
 assert sys.version_info >= (3, 9), "Python >= 3.9 required (default python3 on Zeus is 3.6)"
 PY
