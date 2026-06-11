@@ -48,6 +48,129 @@ def _sum_terms(terms):
     return TensAdd(*nonzero)
 
 
+class CanonAccumulator:
+    """Incremental term accumulator that `canon`-folds periodically (opt #3).
+
+    The hot builders (field-redef substitution, energy-momentum, the H2
+    violation Z, the superpotential Psi) generate many terms that each carry
+    distinct fresh dummies, so they do NOT combine in a plain `TensAdd` until
+    `canon` normalizes the dummies. Building the whole list and `canon`-ing it
+    once therefore holds every un-combined term in RAM at peak, and runs the
+    single (superlinear-in-term-count) `canon` on the full pile.
+
+    This accumulator instead folds the pending buffer into a `canon`-ed running
+    total every `fold_every` additions. Because these sums combine/cancel
+    heavily, the running total stays small, so peak live terms is bounded by
+    (running total + fold_every) and each `canon` runs on a small input.
+
+    Correctness: `+` is associative and `canon` is idempotent/canonicalizing,
+    so the final `result()` equals `canon` of the one-shot sum of all added
+    terms. (Validated per call-site via the A/B + regression checks.)
+
+    Usage:
+        acc = CanonAccumulator(fold_every=50)
+        for t in produce_terms():
+            acc.add(t)
+        result = acc.result()        # canon-ed TensExpr (or S.Zero)
+    """
+
+    __slots__ = ('fold_every', '_buf', '_total')
+
+    def __init__(self, fold_every=50):
+        self.fold_every = fold_every
+        self._buf = []          # pending, un-canon'd terms
+        self._total = S.Zero    # canon'd running total
+
+    def add(self, term):
+        if term is S.Zero or term == 0:
+            return
+        # Flatten a TensAdd into its terms so fold_every is a true term count
+        # (tighter peak-RAM bound than counting each .add() as one).
+        if isinstance(term, TensAdd):
+            self._buf.extend(term.args)
+        else:
+            self._buf.append(term)
+        if len(self._buf) >= self.fold_every:
+            self._fold()
+
+    def _fold(self):
+        if not self._buf:
+            return
+        if self._total is S.Zero:
+            partial = _sum_terms(self._buf)
+        else:
+            partial = _sum_terms([self._total, *self._buf])
+        self._total = canon(partial) if isinstance(partial, TensExpr) else partial
+        self._buf = []
+
+    def result(self):
+        self._fold()
+        return self._total
+
+
+def apply_linear_chunked(F, expr, chunk_size=64, fold_every=128):
+    """Apply a LINEAR builder `F` to a large TensAdd `expr` chunk-by-chunk.
+
+    For any F with F(A+B) == F(A)+F(B) and F(0)==0 (the jet/total derivatives,
+    the EL operator, the Hilbert/Belinfante EM -- all linear in the input
+    Lagrangian), F(expr) = sum_j F(chunk_j) over a partition of expr's terms.
+    Running the *whole* step (inflation AND its downstream reduction) per small
+    chunk bounds the peak intermediate to ~one chunk's inflation instead of the
+    full input's, while the cross-chunk combinations still happen in the final
+    canon of the accumulated (already-reduced) per-chunk results.
+
+    Handles two builder shapes:
+      * bare:  F(x) -> tensor expr   (total_derivative, jet_derivative with the
+        caller's FIXED free indices)
+      * indexed:  F(x) -> (tensor, fresh_indices)   (euler_lagrange, the EM) --
+        each chunk mints its own free indices, so we reindex every chunk's result
+        onto the FIRST chunk's indices before accumulating, and return
+        (result, those_indices) so the caller reindexes once, exactly as it would
+        for the whole-input call.
+
+    Equivalent to the whole-input call for any linear F -- but ONLY for linear F,
+    so every call site must be A/B-validated (chunked == whole) before relying on
+    it. Reuses CanonAccumulator for the accumulation half.
+    """
+    if not isinstance(expr, TensAdd):
+        return F(expr)
+    args = expr.args
+    if len(args) <= chunk_size:
+        return F(expr)
+    acc = CanonAccumulator(fold_every=fold_every)
+    target_idx = None
+    indexed = False
+    for i in range(0, len(args), chunk_size):
+        chunk = _sum_terms(args[i:i + chunk_size])
+        r = F(chunk)
+        if isinstance(r, tuple):
+            indexed = True
+            rexpr, ridx = r
+            if rexpr is S.Zero or rexpr == 0:
+                continue
+            if target_idx is None:
+                target_idx = ridx
+                acc.add(rexpr)
+            else:
+                acc.add(_reindex_free(rexpr, ridx, target_idx))
+        else:
+            acc.add(r)
+    result = acc.result()
+    return (result, target_idx) if indexed else result
+
+
+def _reindex_free(expr, old_indices, new_indices):
+    """Relabel free indices old->new (both signs) + canon. (Local copy to avoid
+    a jet<->loop_helpers import cycle; mirrors loop_helpers._reindex_tensor.)"""
+    if expr is S.Zero or expr == 0 or not hasattr(expr, 'substitute_indices'):
+        return expr
+    pairs = []
+    for o, nw in zip(old_indices, new_indices):
+        pairs.append((o, nw))
+        pairs.append((-o, -nw))
+    return canon(expr.substitute_indices(*pairs))
+
+
 def _is_tensor_atom(expr):
     """Check if expr is a single tensor factor like h(-mu,-nu)."""
     return isinstance(expr, Tensor)

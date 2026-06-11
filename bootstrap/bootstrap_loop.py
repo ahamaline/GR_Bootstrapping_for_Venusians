@@ -22,6 +22,7 @@ bootstrap-derived L^{(n+1)} is checked against L_ref^{(n+1)} — see
 """
 
 import itertools
+import os
 
 from sympy import S, Rational, Symbol
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
@@ -33,7 +34,7 @@ from bootstrap.tensor_algebra import (
 from bootstrap.euler_lagrange import euler_lagrange, euler_lagrange_scalar, remove_second_derivatives
 from bootstrap.jet import (
     total_derivative, jet_derivative, _decompose_tensmul, _get_component,
-    _get_indices, _sum_terms,
+    _get_indices, _sum_terms, CanonAccumulator, apply_linear_chunked,
 )
 from bootstrap.eom_decompose import decompose_against_eoms
 from bootstrap.helmholtz import (
@@ -53,6 +54,26 @@ from bootstrap.traceless import TracelessRecoveryMixin
 
 
 kappa = Symbol('kappa')
+
+# Optimization #3: in the field-redef substitution, fold the term accumulator
+# through `canon` every this-many pending terms (bounds peak RAM and keeps each
+# canon small instead of one canon over the whole pile). Tunable; probes/tests
+# can override via `bootstrap_loop._REDEF_FOLD_EVERY = N`.
+_REDEF_FOLD_EVERY = 50
+
+# Step 3 recomputes Z after adding the X correction, as a sanity check that H2
+# is now satisfied. That recompute is redundant — the decomposition already had
+# residual 0 and X = -1/(2(n+1)) Y·h is built to cancel Z, and the later
+# EL(L^(n+1)) == E^(n) check independently confirms Helmholtz — and it's a heavy
+# compute_h2_violation on the (large, high-order) corrected E. Skip it by default;
+# flip to True to re-enable for debugging.
+_RECHECK_H2_AFTER_CORRECTION = False
+
+# Chunk size for chunkwise-linear construction (apply_linear_chunked) of the big
+# linear builders (EL recompute, Z, E_1, Psi). Bounds the peak intermediate to
+# ~(chunk/|input|)x the full inflation. Tunable; smaller = lower peak, more
+# per-chunk overhead.
+_LINEAR_CHUNK = int(os.environ.get('GRB_LINEAR_CHUNK', '64'))
 
 
 
@@ -278,7 +299,7 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order,
         delta = None
 
     heads_set = {head, dhead, ddhead}
-    result_terms = []
+    acc = CanonAccumulator(fold_every=_REDEF_FOLD_EVERY)
     for term in (L.args if isinstance(L, TensAdd) else [L]):
         if isinstance(term, TensMul):
             coeff, factors = _decompose_tensmul(term)
@@ -303,7 +324,7 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order,
         else:
             j_max = max(0, min((target_order - c) // delta, p))
         # j = 0 is always the original term, already canonical -- keep as-is.
-        result_terms.append(term)
+        acc.add(term)
         if p == 0 or j_max == 0:
             continue
         # Only now (we will actually use them) build the replacements.
@@ -316,19 +337,18 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order,
                     product = product * (reps[i] if i in ss else replaceable_facs[i])
                 if isinstance(product, TensExpr):
                     product = product.expand()
-                    product = canon(product)
-                if product != S.Zero:
-                    result_terms.append(product)
+                # Defer canonicalization: the accumulator folds the buffer
+                # through canon periodically (opt #3), so we no longer canon
+                # each product individually here.
+                acc.add(product)
 
-    if not result_terms:
+    result = acc.result()
+    if result is S.Zero:
         return S.Zero
-    result = TensAdd(*result_terms) if len(result_terms) > 1 else result_terms[0]
-    if isinstance(result, TensExpr):
-        result = canon(result)
 
     # Safety truncation: with a homogeneous f the subset bound is exact, but a
     # non-homogeneous f (f_order = MIN over its terms) can still emit a few
-    # over-target stragglers; drop them here.
+    # over-target stragglers; drop them here. USER COMMENT: in the bootstrap, f should always be homogeneous in h, if not it's an error.
     truncated_terms = []
     for term in (result.args if isinstance(result, TensAdd) else [result]):
         if order_in_h(term) <= target_order:
@@ -542,9 +562,11 @@ class BootstrapState(TracelessRecoveryMixin):
                 print(f"    Computing {em_name} energy-momentum tensor "
                       f"from L^({n}) ({_format_breakdown(L_n)})")
             if self.em_procedure == 'hilbert':
-                T_mn, T_idx = hilbert_energy_momentum(L_n)
+                T_mn, T_idx = apply_linear_chunked(
+                    hilbert_energy_momentum, L_n, chunk_size=_LINEAR_CHUNK)
             elif self.em_procedure == 'belinfante':
-                T_mn, T_idx = symmetrized_belinfante(L_n)
+                T_mn, T_idx = apply_linear_chunked(
+                    symmetrized_belinfante, L_n, chunk_size=_LINEAR_CHUNK)
             else:
                 raise NotImplementedError(self.em_procedure)
             T_mn = _reindex_tensor(T_mn, T_idx, (self.mu_E, self.nu_E))
@@ -703,7 +725,9 @@ class BootstrapState(TracelessRecoveryMixin):
             if self.verbose:
                 print(f"    H2 check skipped (E is zero)")
             return E
-        Z, h_indices = compute_h2_violation(E, (self.mu_E, self.nu_E))
+        Z, h_indices = apply_linear_chunked(
+            lambda x: compute_h2_violation(x, (self.mu_E, self.nu_E)),
+            E, chunk_size=_LINEAR_CHUNK)
         if Z == S.Zero:
             if self.verbose:
                 print(f"    H2 check: Z = 0 (OK)")
@@ -755,6 +779,8 @@ class BootstrapState(TracelessRecoveryMixin):
             X_h = coeff * Y_h * h(-alpha_h, -beta_h)
             if isinstance(X_h, TensExpr):
                 X_h = canon(X_h)
+            # Cheap correctness check: antisym-deriv(X_h) must reproduce -Y_h.
+            self._verify_X_reproduces_Y(X_h, Y_h, (alpha_h, beta_h), 'h', n)
             # Apply to E^(0): contract X_h's EOM-side indices with E^(0)'s.
             X_h_free = X_h.get_free_indices()
             extra_h = [idx for idx in X_h_free
@@ -787,6 +813,8 @@ class BootstrapState(TracelessRecoveryMixin):
             X_phi = coeff * Y_phi * h(-alpha_h, -beta_h)
             if isinstance(X_phi, TensExpr):
                 X_phi = canon(X_phi)
+            # Cheap correctness check: antisym-deriv(X_phi) must reproduce -Y_phi.
+            self._verify_X_reproduces_Y(X_phi, Y_phi, (alpha_h, beta_h), name, n)
             if self.verbose:
                 print(f"    Y_{name}: {_format_breakdown(Y_phi)};  "
                       f"X_{name}: {_format_breakdown(X_phi)}")
@@ -819,19 +847,24 @@ class BootstrapState(TracelessRecoveryMixin):
         if isinstance(E_new, TensExpr):
             E_new = canon(E_new)
 
-        # Sanity: the new Z (after correction) should be zero.
+        # Post-correction Z is zero by construction (decomposition residual was
+        # 0; X = -1/(2(n+1)) Y·h is built to cancel Z) and is independently
+        # confirmed downstream by EL(L^(n+1)) == E^(n). The re-compute here is a
+        # redundant (and heavy) compute_h2_violation, skipped by default.
         if self.verbose:
-            print(f"    E + correction: {_format_breakdown(E_new)} - re-checking H2")
-        Z_after, _ = compute_h2_violation(E_new, (self.mu_E, self.nu_E))
-        if Z_after != S.Zero:
-            n_z = _count(Z_after)
-            raise RuntimeError(
-                f"H2 correction at order n={n} failed: re-computed Z has "
-                f"{n_z} terms after applying X · E^(0). Check the sign/contraction "
-                f"convention in step 3 or the decomposition output."
-            )
-        if self.verbose:
-            print(f"    H2 check after correction: Z = 0 (OK)")
+            tag = ' - re-checking H2' if _RECHECK_H2_AFTER_CORRECTION else ''
+            print(f"    E + correction: {_format_breakdown(E_new)}{tag}")
+        if _RECHECK_H2_AFTER_CORRECTION:
+            Z_after, _ = compute_h2_violation(E_new, (self.mu_E, self.nu_E))
+            if Z_after != S.Zero:
+                n_z = _count(Z_after)
+                raise RuntimeError(
+                    f"H2 correction at order n={n} failed: re-computed Z has "
+                    f"{n_z} terms after applying X · E^(0). Check the sign/"
+                    f"contraction convention in step 3 or the decomposition output."
+                )
+            if self.verbose:
+                print(f"    H2 check after correction: Z = 0 (OK)")
         return E_new
 
     def _merge_eom_coeff(self, prior, X_new):
@@ -1108,6 +1141,33 @@ class BootstrapState(TracelessRecoveryMixin):
 
 
 
+    def _verify_X_reproduces_Y(self, X, Y, ab_Y, label, n):
+        """Cheap step-3 correctness check (replaces the dropped full H2 re-check).
+
+        The mandatory correction X = -1/(2(n+1)) Y h_{αβ} is built so that
+        H2(X·E^(0)) cancels Z = Y·E^(0). The local identity guaranteeing this is
+
+            compute_h2_violation(X)  ==  -Y          (EOM-side indices spectators)
+
+        — H2 differentiates all (n+1) h-powers in X, so (n+1) cancels 1/(n+1) and
+        the antisym 2 cancels 1/2, leaving exactly -Y. This runs on the SMALL X/Y
+        (Y is usually a handful of terms), so it's cheap enough to keep always-on,
+        unlike re-computing H2 on the full corrected E. `ab_Y` = Y's (α, β)
+        h-indices to align compute_h2_violation's fresh pair onto.
+        """
+        if X == S.Zero or Y == S.Zero:
+            return
+        Z_X, ab_X = compute_h2_violation(X, (self.mu_E, self.nu_E))
+        if isinstance(Z_X, TensExpr) and ab_X[0] is not None:
+            Z_X = _reindex_tensor(Z_X, ab_X, ab_Y)
+        resid = canon(Z_X + Y) if isinstance(Z_X + Y, TensExpr) else (Z_X + Y)
+        if resid != S.Zero:
+            raise RuntimeError(
+                f"step-3 X->Y consistency check failed for {label} at n={n}: "
+                f"compute_h2_violation(X) != -Y (residual {_count(resid)} terms). "
+                f"Indicates a sign/contraction error in forming X from Y."
+            )
+
     def _check_X_integrable(self, X):
         """Helmholtz integrability check on a derivative-free X^{mu nu ...}:
 
@@ -1172,7 +1232,9 @@ class BootstrapState(TracelessRecoveryMixin):
         if self.verbose:
             print(f"    Psi^({n}) symmetries: OK; Psi: {_format_breakdown(Psi)}")
 
-        Delta = superpotential_divergence(Psi, psi_idx)
+        Delta = apply_linear_chunked(
+            lambda x: superpotential_divergence(x, psi_idx), Psi,
+            chunk_size=_LINEAR_CHUNK)
         Delta = _reindex_tensor(Delta, (psi_idx[0], psi_idx[1]),
                                 (self.mu_E, self.nu_E))
 
@@ -1223,7 +1285,8 @@ class BootstrapState(TracelessRecoveryMixin):
                 print(f"  Verify EL(L^({n+1})) == E^({n}): both zero, OK")
             return True
 
-        E_check, E_check_idx = euler_lagrange(L_next, h)
+        E_check, E_check_idx = apply_linear_chunked(
+            lambda x: euler_lagrange(x, h), L_next, chunk_size=_LINEAR_CHUNK)
         E_check = _reindex_tensor(E_check, E_check_idx, (self.mu_E, self.nu_E))
 
         diff = canon(E_check - E_target)
@@ -1327,7 +1390,8 @@ class BootstrapState(TracelessRecoveryMixin):
         if L_r == S.Zero:
             E_r = S.Zero
         else:
-            E_r, E_r_idx = euler_lagrange(L_r, h)
+            E_r, E_r_idx = apply_linear_chunked(
+                lambda x: euler_lagrange(x, h), L_r, chunk_size=_LINEAR_CHUNK)
             E_r = _reindex_tensor(E_r, E_r_idx, (self.mu_E, self.nu_E))
         E_diff = self.E[n] - E_r
         if isinstance(E_diff, TensExpr):
@@ -1397,7 +1461,9 @@ class BootstrapState(TracelessRecoveryMixin):
                 # exactly cancel the original diff. If not 0, the redef
                 # didn't fully absorb the diff — either the substitution is
                 # incomplete, or h-redef is needed in addition (X_h ≠ 0).
-                E_r_new_expr, E_r_new_idx = euler_lagrange(self.L_ref[target_n], h)
+                E_r_new_expr, E_r_new_idx = apply_linear_chunked(
+                    lambda x: euler_lagrange(x, h), self.L_ref[target_n],
+                    chunk_size=_LINEAR_CHUNK)
                 E_r_new = _reindex_tensor(E_r_new_expr, E_r_new_idx, (self.mu_E, self.nu_E))
                 E_diff_new = self.E[n] - E_r_new
                 if isinstance(E_diff_new, TensExpr):

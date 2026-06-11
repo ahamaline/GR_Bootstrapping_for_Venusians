@@ -441,6 +441,67 @@ def dimension():
     return Lorentz.dim
 
 
+# --- optimization-#3 headroom profiling (temporary, env-gated; remove later) --
+# With GRB_CANON_PROFILE=1, record (n_in, n_out) term counts for every canon
+# call whose input has >= GRB_CANON_PROFILE_MIN terms, and dump the worst
+# collapse ratios at exit. n_in >> n_out on the big builders (E_1, Delta) means
+# the pre-canon pile is much larger than the final -> headroom for #3 to bound
+# the peak by folding. n_in ~ n_out means little to gain.
+import os as _os
+import sys as _sys
+_CANON_PROFILE = bool(_os.environ.get('GRB_CANON_PROFILE'))
+_CANON_PROFILE_MIN = int(_os.environ.get('GRB_CANON_PROFILE_MIN', '300'))
+_canon_profile_records = []
+_canon_profile_sample = {'n_in': 0, 'out': None, 'caller': None}
+
+
+def _canon_term_count(e):
+    if isinstance(e, TensAdd):
+        return len(e.args)
+    return 0 if (e is S.Zero or e == 0) else 1
+
+
+def _canon_caller():
+    """Nearest stack frame OUTSIDE tensor_algebra.py -> the builder that asked
+    for this canon (skips canon/_canon_impl internal recursion)."""
+    f = _sys._getframe(2)
+    while f is not None and f.f_code.co_filename.endswith('tensor_algebra.py'):
+        f = f.f_back
+    if f is None:
+        return '?'
+    return f"{_os.path.basename(f.f_code.co_filename)}:{f.f_lineno} {f.f_code.co_name}"
+
+
+if _CANON_PROFILE:
+    import atexit as _atexit
+
+    def _dump_canon_profile():
+        recs = _canon_profile_records
+        if not recs:
+            print("\n=== canon collapse profile: no calls >= "
+                  f"{_CANON_PROFILE_MIN} terms ===", flush=True)
+            return
+        top = sorted(recs, reverse=True)[:25]
+        print(f"\n=== canon collapse profile (calls with n_in >= "
+              f"{_CANON_PROFILE_MIN}); top 25 by n_in ===", flush=True)
+        for n_in, n_out, caller in top:
+            r = n_in / n_out if n_out else float('inf')
+            print(f"   n_in={n_in:7d} -> n_out={n_out:7d}  x{r:5.2f}  <- {caller}",
+                  flush=True)
+        ratios = [a / b for a, b, _ in recs if b]
+        ratios.sort()
+        med = ratios[len(ratios) // 2]
+        # also tally by caller
+        from collections import Counter
+        by_caller = Counter(c for _, _, c in recs)
+        print(f"   [{len(recs)} calls; max n_in={max(a for a, _, _ in recs)}; "
+              f"median collapse x{med:.2f}; max collapse x{max(ratios):.2f}]",
+              flush=True)
+        print("   by caller:", dict(by_caller.most_common(10)), flush=True)
+
+    _atexit.register(_dump_canon_profile)
+
+
 def canon(expr):
     """Canonicalize a tensor expression.
 
@@ -472,7 +533,13 @@ def canon(expr):
     dimension is a concrete int) pay nothing.
     """
     result = _canon_impl(expr)
-    return _simplify_d_coeffs(result)
+    out = _simplify_d_coeffs(result)
+    if _CANON_PROFILE:
+        n_in = _canon_term_count(expr)
+        if n_in >= _CANON_PROFILE_MIN:
+            _canon_profile_records.append(
+                (n_in, _canon_term_count(out), _canon_caller()))
+    return out
 
 
 def _canon_impl(expr):

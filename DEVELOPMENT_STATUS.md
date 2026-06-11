@@ -384,6 +384,78 @@ pass. Profiling probes are gitignored scratch under `tests/_*` and `/_*`.
 `hpc_suite/submit_fast.sh` submits suffix-tagged parallel re-runs (defaults to
 the redef-bound #5/#7) without clobbering still-running old jobs.
 
+**Production validation (Zeus, old vs `_fast`; same `E^(n)` term counts, i.e.
+identical results):**
+- Run 5 (scalar optional-EOM Belinfante), order 1: **79,159 s (22.0 h) → 1,989 s
+  (33 min), ≈40×**; old never reached order 2, `_fast` closes it in 41 min.
+- Run 7 (conformal-scalar injection), order 2: **10,542 s (2.9 h) → 2,140 s
+  (36 min), ≈4.9×**.
+- These end-to-end factors fold in the flint backend (~2×) on top of #1/#2, since
+  the old runs predate the flint install — so "#1/#2 alone" is roughly half each
+  factor. The spread (40× vs 4.9×) tracks how *redef-dominated* the order was:
+  run 5 order 1 is almost pure h-redef binomial; run 7 order 2 spends most time
+  in Ψ/Δ/EM, which #1/#2 don't touch (that residual is the chunking target below).
+
+**More production points (old vs `_fast`, same `E⁽ⁿ⁾` counts):**
+- Run 7 order 3: **175,917 s (48.9 h) → 8,867 s (2.5 h) ≈ 20×** — the redef step that
+  pinned old run 7 for ~2 days. Fast 5 and 7 both reached order 4 (new closures).
+- **Run 6 speedup DECAYS with order: o1 11.5× / o2 6.8× / o3 1.6× / o4 1.1×.** By
+  order 4 the fast code is barely faster — the redef win (#1/#2) **saturates** and
+  the time moves into the `E_1`/Δ builders. This is the empirical case for the
+  next optimization.
+
+### Next perf direction: chunkwise-linear construction (supersedes vanilla #3)
+
+#3 (periodic-canon folding) does NOT help the big builders: their large `canon`
+inputs are **`jet_derivative` outputs carrying 2 free indices (μν)**, and `canon`
+cannot rename *free* indices, so the terms can't merge (collapse ×1.00 — measured).
+Folding has nothing to fold.
+
+Instead, exploit **linearity**: `jet_derivative`, `total_derivative`, the EL
+operator, and the Hilbert/Belinfante EM are all linear in `L`, so
+`F(L) = Σ_j F(chunk_j)`. Running the whole inflate-then-shrink op per small input
+chunk bounds the **peak intermediate** to ~(chunk_size/|L|)×inflation, while
+cross-chunk combinations still happen in the final `canon` of the (already-reduced)
+per-chunk results. Implemented as `jet.apply_linear_chunked(F, expr, chunk_size,
+fold_every)` (reuses `CanonAccumulator`). A/B-validated `chunked == whole` (diff=0) for `total_derivative`, `jet_derivative`,
+AND `hilbert_EM` — the EM returns `(tensor, fresh indices)`, so index-returning
+builders need a **reindex-aware** wrapper (reindex each chunk's result to common
+indices before summing); that reindex approach is confirmed correct by the A/B.
+(`tests/_ab_chunked.py`.)
+
+**PRIORITY (un-sticks production): incremental E_diff re-verify.** The stuck Zeus
+runs (5/6/7/1, no progress 22h) are NOT on the redefs — they hang in
+`_verify_vs_L_ref` at `bootstrap_loop.py:1405`, which does
+`euler_lagrange(self.L_ref[target_n], h)` — a FULL EL recompute of the entire
+high-order new L_ref after the traceless/field redef, just to re-verify
+E_diff_new == 0. That's a full jet_derivative-class build at the worst order. But
+EL is linear and only the small redef-delta changed L_ref, so do it incrementally:
+ΔL_ref = L_ref_new − L_ref_old (snapshot before `_apply_field_redefs_to_L_ref`),
+then `E_diff_new = canon(E_diff − reindex(EL(ΔL_ref)))` — cheap (delta is small),
+exact by linearity, A/B-validatable. Same trick at the analogous recompute in
+`_apply_one_field_redef`/`_recover_missed_traceless_redef` if present.
+CAVEAT (user): one EL recompute isn't enough to explain a 22h stall, so the
+incremental-EL is necessary but maybe NOT sufficient. Likely larger culprit: the
+**decompose** half (`decompose_against_eoms`/`_check_eom_decomposition` on a large
+high-order E_diff — possibly superlinear). Also check whether the re-verify fires
+once PER redef (h + each matter redef = several full EL recomputes/order). DIAGNOSE
+FIRST: stuck-log last line (`decompos…` vs mid-recompute) + E_diff term count.
+DECISION (user): do NOT use incremental-EL. The full `EL(L_ref_new)` recompute IS
+the independent verification that the bootstrapped E_h is correct; `E_diff_new =
+E_diff − EL(Δ)` would be CIRCULAR (assumes the linearity it's meant to confirm).
+Keep the full recompute — make it tractable by CHUNKING instead, which computes the
+identical full EL (A/B-proven chunked==whole) with bounded peak, so it preserves the
+check fully. Resume order: (1) diagnose recompute-vs-decompose (stuck-log last line +
+E_diff term count), (2) chunk whichever dominates — the EL recompute via
+apply_linear_chunked; the decompose (`decompose_against_eoms`) if it's linear/
+term-local (check), else attack its superlinearity directly.
+
+Rollout rule (user): chunk **only** ops where the intermediate is much larger than
+its eventual result (inflate-then-shrink, via `canon` *or* contraction/IBP — pick
+targets by operation-level inflation). Keep **Z, Ψ, E_diff** materialized whole at
+their *global* step (decompose / symmetry-check / closure `==0`), where cross-chunk
+cancellation determines the answer. NOT yet wired into the builders or measured.
+
 ## The 6-step bootstrap (paper §4, quick reference)
 
 For each order n = 0, 1, 2, ...:
