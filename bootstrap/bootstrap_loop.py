@@ -55,11 +55,14 @@ from bootstrap.traceless import TracelessRecoveryMixin
 
 kappa = Symbol('kappa')
 
-# Optimization #3: in the field-redef substitution, fold the term accumulator
-# through `canon` every this-many pending terms (bounds peak RAM and keeps each
-# canon small instead of one canon over the whole pile). Tunable; probes/tests
-# can override via `bootstrap_loop._REDEF_FOLD_EVERY = N`.
-_REDEF_FOLD_EVERY = 50
+# Field-redef substitution accumulator fold GRANULARITY. Folding is now gated on
+# memory pressure inside CanonAccumulator (jet._mem_pressure), so under normal
+# (non-pressured) conditions the accumulator does a SINGLE canon at the end (==
+# original behavior, no per-term-BP re-canon overhead — that overhead was the
+# ~10x regression on the tagged redef, see tests/_repro_redef_fold.py). Under a
+# genuine RAM barrier it folds every this-many terms to bound the un-canon'd
+# intermediate. Override via `bootstrap_loop._REDEF_FOLD_EVERY = N`.
+_REDEF_FOLD_EVERY = 64
 
 # Step 3 recomputes Z after adding the X correction, as a sanity check that H2
 # is now satisfied. That recompute is redundant — the decomposition already had

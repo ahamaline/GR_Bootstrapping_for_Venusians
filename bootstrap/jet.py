@@ -16,6 +16,8 @@ and for the Helmholtz conditions.
 """
 
 from functools import lru_cache
+import os as _os
+import time as _time
 
 from sympy import S, Rational
 from sympy.tensor.tensor import (
@@ -25,6 +27,80 @@ from bootstrap.tensor_algebra import (
     metric, h, dh, ddh,
     canon, _JET_HIERARCHY,
 )
+
+# CanonAccumulator fold diagnostics (env-gated; see _fold/result). Reveals
+# whether folding is re-canon'ing a non-shrinking total (the regression mode).
+_REDEF_PROFILE = bool(_os.environ.get('GRB_REDEF_PROFILE'))
+_CANON_PROFILE_MIN = int(_os.environ.get('GRB_REDEF_PROFILE_MIN', '200'))
+
+# --- memory-pressure gate for folding/chunking ------------------------------
+# `canon` cost is dominated by per-term Butler-Portugal (index/dummy
+# permutations), NOT term count, so folding/chunking ADD canon calls = pure time
+# overhead UNLESS we're actually near a RAM barrier (their only payoff is bounding
+# the un-canon'd intermediate). So both are GATED on memory pressure: do the extra
+# canons only when RSS exceeds a budget. Budget = GRB_MEM_BUDGET_GB if set
+# (recommended: PBS script exports ~0.7x requested mem), else GRB_MEM_BUDGET_FRAC
+# (default 0.7) x total system RAM. If RAM can't be measured -> no gate ->
+# never fold/chunk (fast path, no memory safety). Linux /proc works without psutil.
+try:
+    import psutil as _psutil
+except Exception:
+    _psutil = None
+
+
+def _total_ram_bytes():
+    if _psutil is not None:
+        try:
+            return _psutil.virtual_memory().total
+        except Exception:
+            pass
+    try:  # Linux fallback
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    return int(line.split()[1]) * 1024
+    except Exception:
+        pass
+    return None
+
+
+def _rss_bytes():
+    if _psutil is not None:
+        try:
+            return _psutil.Process().memory_info().rss
+        except Exception:
+            pass
+    try:  # Linux fallback
+        with open('/proc/self/statm') as f:
+            return int(f.read().split()[1]) * _os.sysconf('SC_PAGE_SIZE')
+    except Exception:
+        return None
+
+
+def _compute_mem_budget():
+    gb = _os.environ.get('GRB_MEM_BUDGET_GB')
+    if gb:
+        try:
+            return float(gb) * (1024 ** 3)
+        except ValueError:
+            pass
+    total = _total_ram_bytes()
+    if total is None:
+        return None
+    return total * float(_os.environ.get('GRB_MEM_BUDGET_FRAC', '0.7'))
+
+
+_MEM_BUDGET = _compute_mem_budget()   # bytes, or None if unmeasurable
+
+
+def _mem_pressure():
+    """True iff process RSS is above the budget -> worth the extra canons of
+    folding/chunking to bound the intermediate. False (fast path) if RAM can't
+    be measured. Force with GRB_MEM_BUDGET_GB / GRB_MEM_BUDGET_FRAC for testing."""
+    if _MEM_BUDGET is None:
+        return False
+    rss = _rss_bytes()
+    return rss is not None and rss > _MEM_BUDGET
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +150,18 @@ class CanonAccumulator:
         result = acc.result()        # canon-ed TensExpr (or S.Zero)
     """
 
-    __slots__ = ('fold_every', '_buf', '_total')
+    __slots__ = ('fold_every', '_buf', '_total', '_nfolds', '_nadded',
+                 '_maxtotal', '_foldsecs', '_check_at')
 
     def __init__(self, fold_every=50):
         self.fold_every = fold_every
         self._buf = []          # pending, un-canon'd terms
         self._total = S.Zero    # canon'd running total
+        self._check_at = fold_every  # buffer size at which to re-check pressure
+        self._nfolds = 0        # diagnostics (GRB_REDEF_PROFILE)
+        self._nadded = 0
+        self._maxtotal = 0
+        self._foldsecs = 0.0
 
     def add(self, term):
         if term is S.Zero or term == 0:
@@ -88,10 +170,19 @@ class CanonAccumulator:
         # (tighter peak-RAM bound than counting each .add() as one).
         if isinstance(term, TensAdd):
             self._buf.extend(term.args)
+            self._nadded += len(term.args)
         else:
             self._buf.append(term)
-        if len(self._buf) >= self.fold_every:
-            self._fold()
+            self._nadded += 1
+        # Fold (an extra canon) ONLY under memory pressure — otherwise accumulate
+        # and canon once at result() (folding is per-term-BP overhead, see the
+        # module gate). Re-check pressure every fold_every more terms.
+        if len(self._buf) >= self._check_at:
+            if _mem_pressure():
+                self._fold()
+                self._check_at = self.fold_every
+            else:
+                self._check_at = len(self._buf) + self.fold_every
 
     def _fold(self):
         if not self._buf:
@@ -100,11 +191,27 @@ class CanonAccumulator:
             partial = _sum_terms(self._buf)
         else:
             partial = _sum_terms([self._total, *self._buf])
-        self._total = canon(partial) if isinstance(partial, TensExpr) else partial
+        if _REDEF_PROFILE:
+            t0 = _time.time()
+            self._total = canon(partial) if isinstance(partial, TensExpr) else partial
+            self._foldsecs += _time.time() - t0
+            self._nfolds += 1
+            n = len(self._total.args) if isinstance(self._total, TensAdd) else 1
+            if n > self._maxtotal:
+                self._maxtotal = n
+        else:
+            self._total = canon(partial) if isinstance(partial, TensExpr) else partial
+            self._nfolds += 1
         self._buf = []
 
     def result(self):
         self._fold()
+        if _REDEF_PROFILE and self._nadded >= _CANON_PROFILE_MIN:
+            final = len(self._total.args) if isinstance(self._total, TensAdd) else (
+                0 if self._total is S.Zero else 1)
+            print(f"      [acc] added={self._nadded} folds={self._nfolds} "
+                  f"max_total={self._maxtotal} final={final} "
+                  f"fold_canon={self._foldsecs:.1f}s", flush=True)
         return self._total
 
 
@@ -131,12 +238,16 @@ def apply_linear_chunked(F, expr, chunk_size=64, fold_every=128):
     Equivalent to the whole-input call for any linear F -- but ONLY for linear F,
     so every call site must be A/B-validated (chunked == whole) before relying on
     it. Reuses CanonAccumulator for the accumulation half.
+
+    GATED ON MEMORY PRESSURE: chunking calls F once per chunk (extra per-term-BP
+    canons), which is pure time overhead unless near a RAM barrier. So when RSS is
+    below budget we call F whole (no overhead); we only chunk under pressure, to
+    bound the peak by trading canons against swap.
     """
-    if not isinstance(expr, TensAdd):
+    if (not isinstance(expr, TensAdd) or len(expr.args) <= chunk_size
+            or not _mem_pressure()):
         return F(expr)
     args = expr.args
-    if len(args) <= chunk_size:
-        return F(expr)
     acc = CanonAccumulator(fold_every=fold_every)
     target_idx = None
     indexed = False

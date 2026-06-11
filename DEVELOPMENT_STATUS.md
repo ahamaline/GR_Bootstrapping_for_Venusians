@@ -404,57 +404,74 @@ identical results):**
   the time moves into the `E_1`/Δ builders. This is the empirical case for the
   next optimization.
 
-### Next perf direction: chunkwise-linear construction (supersedes vanilla #3)
+### Chunkwise-linear construction — DONE + DEPLOYED (committed/pushed; runs 1/4/5/9 `_chunk` live on zeus_long_q)
 
-#3 (periodic-canon folding) does NOT help the big builders: their large `canon`
-inputs are **`jet_derivative` outputs carrying 2 free indices (μν)**, and `canon`
-cannot rename *free* indices, so the terms can't merge (collapse ×1.00 — measured).
-Folding has nothing to fold.
+**Why chunking, not folding (#3).** The big `canon` inputs are `jet_derivative`
+outputs carrying 2 free indices (μν); `canon` can't rename *free* indices, so the
+terms can't merge (collapse ×1.00 — measured via the env-gated `GRB_CANON_PROFILE`
+in `tensor_algebra.canon`). #3-folding has nothing to fold there. **But** these
+builders are **linear** (`jet_derivative`, `total_derivative`, the EL operator, the
+Hilbert/Belinfante EM, `compute_h2_violation`, `superpotential_divergence`), so
+`F(L) = Σ_j F(chunk_j)`: run the whole inflate-then-shrink op per small input chunk
+→ peak intermediate bounded to ~(chunk/|input|)×inflation, cross-chunk combinations
+still happen in the final `canon`. (#3's `CanonAccumulator` is still the right tool
+for the *redef substitution*, which DOES collapse heavily — both kept, different
+regimes.)
 
-Instead, exploit **linearity**: `jet_derivative`, `total_derivative`, the EL
-operator, and the Hilbert/Belinfante EM are all linear in `L`, so
-`F(L) = Σ_j F(chunk_j)`. Running the whole inflate-then-shrink op per small input
-chunk bounds the **peak intermediate** to ~(chunk_size/|L|)×inflation, while
-cross-chunk combinations still happen in the final `canon` of the (already-reduced)
-per-chunk results. Implemented as `jet.apply_linear_chunked(F, expr, chunk_size,
-fold_every)` (reuses `CanonAccumulator`). A/B-validated `chunked == whole` (diff=0) for `total_derivative`, `jet_derivative`,
-AND `hilbert_EM` — the EM returns `(tensor, fresh indices)`, so index-returning
-builders need a **reindex-aware** wrapper (reindex each chunk's result to common
-indices before summing); that reindex approach is confirmed correct by the A/B.
-(`tests/_ab_chunked.py`.)
+**`jet.apply_linear_chunked(F, expr, chunk_size, fold_every)`** — handles bare
+builders (fixed indices) AND index-returning ones (`(tensor, fresh idx)` → reindex
+each chunk to the first chunk's indices, return `(result, idx)`). A/B-validated
+`chunked == whole` (diff=0) for `total_derivative`, `jet_derivative`,
+`euler_lagrange`, `hilbert_EM` (`tests/_ab_chunked.py`).
 
-**PRIORITY (un-sticks production): incremental E_diff re-verify.** The stuck Zeus
-runs (5/6/7/1, no progress 22h) are NOT on the redefs — they hang in
-`_verify_vs_L_ref` at `bootstrap_loop.py:1405`, which does
-`euler_lagrange(self.L_ref[target_n], h)` — a FULL EL recompute of the entire
-high-order new L_ref after the traceless/field redef, just to re-verify
-E_diff_new == 0. That's a full jet_derivative-class build at the worst order. But
-EL is linear and only the small redef-delta changed L_ref, so do it incrementally:
-ΔL_ref = L_ref_new − L_ref_old (snapshot before `_apply_field_redefs_to_L_ref`),
-then `E_diff_new = canon(E_diff − reindex(EL(ΔL_ref)))` — cheap (delta is small),
-exact by linearity, A/B-validatable. Same trick at the analogous recompute in
-`_apply_one_field_redef`/`_recover_missed_traceless_redef` if present.
-CAVEAT (user): one EL recompute isn't enough to explain a 22h stall, so the
-incremental-EL is necessary but maybe NOT sufficient. Likely larger culprit: the
-**decompose** half (`decompose_against_eoms`/`_check_eom_decomposition` on a large
-high-order E_diff — possibly superlinear). Also check whether the re-verify fires
-once PER redef (h + each matter redef = several full EL recomputes/order). DIAGNOSE
-FIRST: stuck-log last line (`decompos…` vs mid-recompute) + E_diff term count.
-DECISION (user): do NOT use incremental-EL. The full `EL(L_ref_new)` recompute IS
-the independent verification that the bootstrapped E_h is correct; `E_diff_new =
-E_diff − EL(Δ)` would be CIRCULAR (assumes the linearity it's meant to confirm).
-Keep the full recompute — make it tractable by CHUNKING instead, which computes the
-identical full EL (A/B-proven chunked==whole) with bounded peak, so it preserves the
-check fully. Resume order: (1) diagnose recompute-vs-decompose (stuck-log last line +
-E_diff term count), (2) chunk whichever dominates — the EL recompute via
-apply_linear_chunked; the decompose (`decompose_against_eoms`) if it's linear/
-term-local (check), else attack its superlinearity directly.
+**Wired into 6 sites** (`_LINEAR_CHUNK`, default 64, env `GRB_LINEAR_CHUNK`): the
+3 EL recomputes (verify `E_r` @~1335, re-verify-after-redef `E_r_new`, step-6
+self-consistency `E_check`), `E_1` (Hilbert+Belinfante EM), `Z`
+(`compute_h2_violation`), `Δ` (`superpotential_divergence` over Psi). Psi stays
+whole (small; its symmetry check needs the whole — residual is global, not
+chunkable). Rollout rule: chunk only inflate-then-shrink ops; keep **Z, Ψ, E_diff**
+whole at their *global* step (decompose / symmetry / closure `==0`).
 
-Rollout rule (user): chunk **only** ops where the intermediate is much larger than
-its eventual result (inflate-then-shrink, via `canon` *or* contraction/IBP — pick
-targets by operation-level inflation). Keep **Z, Ψ, E_diff** materialized whole at
-their *global* step (decompose / symmetry-check / closure `==0`), where cross-chunk
-cancellation determines the answer. NOT yet wired into the builders or measured.
+**Rejected: incremental E_diff re-verify** (`E_diff_new = E_diff − EL(Δ)`). It's
+CIRCULAR — the full `EL(L_ref_new)` recompute IS the independent verification that
+`E_h` is right; chunking keeps that recompute intact (identical math, bounded peak).
+
+**Dropped the redundant post-step-3 Z re-check** (`_RECHECK_H2_AFTER_CORRECTION =
+False`) — guaranteed by decomposition `residual==0` + the `EL(L^(n+1))==E^(n)`
+check. Replaced by a **cheap always-on step-3 check**: `_verify_X_reproduces_Y` —
+`compute_h2_violation(X) == −Y` (the antisym h-derivative of X reproduces −Y; the
+(n+1) h-powers cancel the `1/(2(n+1))`, the antisym-2 cancels the 1/2). Runs on the
+small X/Y, validated on Belinfante (sign + 4-index spectator handling confirmed).
+
+**Correctness:** conformal(n2) + Belinfante(n3) close with FULL chunking forced on
+(`GRB_LINEAR_CHUNK=8`). **Peak:** `euler_lagrange` L_EH⁵ whole vs chunked =
+**70.3 → 44.7 MB (~36% lower)**, same 346-term result; time is *higher* at this
+small scale (2047 vs 1469 s — pure overhead, no pressure to relieve at 70 MB).
+
+**VERDICT (from the deployed `_chunk` runs): always-on chunking/folding REGRESSED
+everywhere.** `05_chunk` o1 = 21402s vs `05_fast` o1 = 1989s (flint-controlled) =
+**~10×** (tagged redef, #3 folding); `04_chunk` o3 = 9993s vs flint-expected ~2255s
+= **~4.4×** (Proca, chunking the builds); run 9 similar. **Root cause (KEY INSIGHT,
+user):** `canon` cost is dominated by per-term Butler-Portugal (index count + dummy
+permutations), NOT term count — so folding/chunking ADD canon calls = pure time
+overhead, and it AMPLIFIES with order (per-canon BP cost grows with index count).
+Confirmed: `tests/_repro_redef_fold.py` shows folding re-canons a non-shrinking
+total (n_max=3 +27%; Zeus n_max=6 ~10×). The original stalls were CPU/walltime-bound
+(redef — fixed by #1/#2 — + inherent BP cost), NOT memory-bound, so chunking solved
+a problem the runs didn't have. The ~36% peak win is real but only matters AT a RAM
+barrier, which these runs never hit.
+
+**FIX: memory-gate fold+chunk (`jet._mem_pressure`).** Fold (CanonAccumulator) and
+chunk (`apply_linear_chunked`) ONLY when process RSS exceeds a budget
+(`GRB_MEM_BUDGET_GB` if set — PBS script should export ~0.7×requested mem — else
+`GRB_MEM_BUDGET_FRAC`×total RAM, default 0.7; `/proc` fallback so it works on Zeus
+without psutil; no gate ⇒ never fold/chunk if RAM unmeasurable). So on a roomy node
+/ low order it does ZERO extra canons (== fast code: #1/#2 + Z-drop + X→Y), and only
+near the RAM wall does it trade canons to bound the intermediate and avoid swap.
+Validated: no-pressure repro now `folds=1` (no regression); forced-pressure (tiny
+budget) conformal still closes. `_REDEF_FOLD_EVERY=64` is now just the under-pressure
+fold granularity. **TODO: recommit + redeploy (restart `_chunk` runs); the currently
+deployed `_chunk` runs carry the always-on regression and should be restarted.**
 
 ## The 6-step bootstrap (paper §4, quick reference)
 
