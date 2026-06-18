@@ -25,27 +25,28 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p logs pbs_generated
 
-# Memory: requested NEAR each queue's node limit (zeus_new_q nodes = 1 TB,
-# zeus_long_q nodes = 378 GB), leaving a little headroom so the job still
-# schedules (a job can't claim a node's entire RAM; some is reserved for the OS).
-# Rationale: PBS kills a job that exceeds its requested mem, and we never
-# measured these runs' peak usage; since each is single-core and there are far
-# more public nodes than jobs, there's no reason to under-request and risk a
-# premature OOM-kill below the RAM the node actually has. Dial down only if you
-# want jobs to pack onto shared nodes / start sooner.
+# Memory: the requests below are deliberately generous (near each queue's node
+# limit). We now have measured peaks from completed runs (trailing comment on
+# each row; full table in README.md "Measured resource usage"): actual peak is
+# 5.5-26.2 GB, i.e. 15-150x BELOW the request. So these requests are massively
+# over-provisioned -- you could safely drop every one to mem=64gb (>2x headroom
+# on the heaviest, #9 at 26 GB) to pack onto shared nodes / schedule sooner.
+# They're left high here only as a no-think safety margin; PBS kills a job that
+# exceeds its requested mem, and over-requesting a single-core job is cheap when
+# nodes outnumber jobs. Queue choice is driven by WALLTIME, not mem (see README).
 #
-# run name (without .py)                         queue         walltime     mem
+# run name (without .py)                         queue         walltime     mem      # measured peak
 RUNS=(
-  "01_pure_gravity_hilbert                       zeus_long_q   168:00:00    360gb"
-  "02_scalar_mass_potential_hilbert              zeus_new_q    72:00:00     960gb"
-  "03_em_d4_hilbert                              zeus_new_q    72:00:00     960gb"
-  "04_proca_mass_hilbert                         zeus_long_q   168:00:00    360gb"
-  "05_scalar_optional_eom_tagged_belinfante      zeus_long_q   168:00:00    360gb"
-  "06_em_d4_belinfante                           zeus_new_q    72:00:00     960gb"
-  "07_conformal_scalar_injection_hilbert         zeus_new_q    72:00:00     960gb"
-  "08_kitchen_sink_hilbert                       zeus_new_q    72:00:00     960gb"
-  "09_traceless_kitchen_sink_hilbert             zeus_long_q   168:00:00    360gb"
-  "10_traceless_kitchen_sink_injection_hilbert   zeus_new_q    72:00:00     960gb"
+  "01_pure_gravity_hilbert                       zeus_long_q   168:00:00    360gb"   # 13.6 GB
+  "02_scalar_mass_potential_hilbert              zeus_new_q    72:00:00     960gb"   #  6.9 GB
+  "03_em_d4_hilbert                              zeus_new_q    72:00:00     960gb"   #  6.7 GB
+  "04_proca_mass_hilbert                         zeus_long_q   168:00:00    360gb"   # 24.7 GB
+  "05_scalar_optional_eom_tagged_belinfante      zeus_long_q   168:00:00    360gb"   # 14.7 GB
+  "06_em_d4_belinfante                           zeus_new_q    72:00:00     960gb"   # 22.1 GB
+  "07_conformal_scalar_injection_hilbert         zeus_new_q    72:00:00     960gb"   #  5.5 GB
+  "08_kitchen_sink_hilbert                       zeus_new_q    72:00:00     960gb"   # 21.6 GB
+  "09_traceless_kitchen_sink_hilbert             zeus_long_q   168:00:00    360gb"   # 26.2 GB
+  "10_traceless_kitchen_sink_injection_hilbert   zeus_new_q    72:00:00     960gb"   #  9.6 GB
 )
 
 want=("$@")  # optional list of 1-based run numbers
