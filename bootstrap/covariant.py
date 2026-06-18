@@ -442,7 +442,7 @@ def matter_lagrangian_order(L_M, n):
         kept_factors = []
         for f in factors:
             comp = _get_component(f)
-            if comp is metric:
+            if comp == metric:  # == not is: pickle-safe head check
                 inds = _get_indices(f)
                 if all(idx.is_up for idx in inds):
                     metric_factors.append((inds, 'up_up'))
@@ -626,7 +626,7 @@ def covariant_coupling_order(coupling, n):
         kept_factors = []     # matter C(fields), passed through
         for f in factors:
             comp = _get_component(f)
-            if comp is metric:
+            if comp == metric:  # == not is: pickle-safe head check
                 inds = _get_indices(f)
                 if all(idx.is_up for idx in inds):
                     metric_factors.append((inds, 'up_up'))
@@ -635,7 +635,7 @@ def covariant_coupling_order(coupling, n):
                 else:
                     kept_factors.append(f)  # mixed -> Kronecker delta
                 continue
-            if comp is Riemann:
+            if comp == Riemann:  # == not is: pickle-safe head check
                 riemann_factors.append(_get_indices(f))
                 continue
             kept_factors.append(f)

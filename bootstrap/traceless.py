@@ -55,7 +55,7 @@ def _extract_ddh_box_signature(expr):
             continue
         hit = None
         for i, f in enumerate(factors):
-            if _get_component(f) is not ddh:
+            if _get_component(f) != ddh:  # != not is-not: pickle-safe head check
                 continue
             idx = _get_indices(f)
             if (len(idx) == 4 and _dummy_pair(idx[0], idx[1])
@@ -121,7 +121,7 @@ def _extract_ddh_deriv_signature(expr, mu, nu):
             continue
         hit = None
         for i, f in enumerate(factors):
-            if _get_component(f) is not ddh:
+            if _get_component(f) != ddh:  # != not is-not: pickle-safe head check
                 continue
             idx = _get_indices(f)
             if len(idx) == 4 and {idx[2].name, idx[3].name} == mset:

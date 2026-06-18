@@ -23,6 +23,7 @@ bootstrap-derived L^{(n+1)} is checked against L_ref^{(n+1)} — see
 
 import itertools
 import os
+import pickle
 
 from sympy import S, Rational, Symbol
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
@@ -30,6 +31,8 @@ from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 from bootstrap.tensor_algebra import (
     h, dh, ddh, fresh_indices, canon, metric, _matter_fields,
     get_tensors_in_expr, filter_by_order, order_in_h,
+    dimension, get_matter_fields, get_index_counter, set_index_counter,
+    register_scalar_field, register_vector_field, register_upstairs_vector_field,
 )
 from bootstrap.euler_lagrange import euler_lagrange, euler_lagrange_scalar, remove_second_derivatives
 from bootstrap.jet import (
@@ -79,6 +82,108 @@ _RECHECK_H2_AFTER_CORRECTION = False
 _LINEAR_CHUNK = int(os.environ.get('GRB_LINEAR_CHUNK', '64'))
 
 
+# ---------------------------------------------------------------------------
+# Cross-process state restoration (checkpoint inspection + parallel worker init)
+# ---------------------------------------------------------------------------
+# These pickle a BootstrapState and, in a FRESH process, restore the module-level
+# state it depends on. THREE things break across a pickle boundary; all three are
+# repaired here:
+#   (1) The matter-field registries (_matter_fields, _JET_HIERARCHY,
+#       NATURAL_POSITIONS) are EMPTY in a fresh process. We replay the exact
+#       register_*_field() calls from the state's _field_specs snapshot. The
+#       freshly-registered heads are DISTINCT objects from the pickled ones but
+#       compare == (TensorHead equality is name+symmetry based) with a matching
+#       hash, so registry dict lookups keyed on either bridge correctly.
+#   (2) Tensor-head IDENTITY (`is`) breaks across pickling. All such head checks
+#       in the compute path were converted to `==` (pickle-safe).
+#   (3) The fresh-index counter resets to 0; load_state fast-forwards it past
+#       every pickled index (see save_state) to avoid name collisions.
+# DIMENSION: default symbolic-d needs nothing; a set_dimension(N) checkpoint
+# requires the resuming process to set_dimension(N) BEFORE importing this module
+# (load_state verifies and raises on mismatch).
+#
+# SCOPE — what this IS and ISN'T good for:
+#   * IS: (a) loading a checkpoint for INSPECTION (_dump_ckpt.py), and (b) the
+#     restoration a parallel WORKER needs at startup (registry + dimension +
+#     counter) — _init_worker for the process pool reuses load_state's logic.
+#     The bootstrap COMPUTE quantities reproduce EXACTLY across a pickle
+#     (verified: pure-gravity E[3] bit-for-bit identical resumed vs in-process).
+#   * IS NOT: a full multi-order checkpoint/RESUME. Continuing run_order in a
+#     fresh process does not reproduce an in-process run — the high-level
+#     verification / traceless-recovery orchestration (_verify_vs_L_ref, the
+#     ddh-box machinery) carries hidden process state that diverges. Fixing the
+#     three breaks above got compute-resume *close* but not there; resume is a
+#     known-incomplete feature (XFAIL test_conformal_order3_lref_closure_resume).
+#     This does NOT affect parallelism: workers only run the (reproducible)
+#     compute builders; verification stays serial in the parent.
+
+def save_state(state, path):
+    """Pickle a BootstrapState to `path` for cross-process restoration (see the
+    section header for scope: inspection + worker-init, NOT full compute-resume).
+
+    The state already carries its self-describing metadata (_dim, _field_specs)
+    captured at construction. We additionally snapshot the live fresh-index
+    counter HERE (not at construction — it advances during run_order) so a
+    resuming process can fast-forward past every pickled index and avoid
+    name collisions on newly-allocated indices.
+    """
+    state._index_counter_at_save = get_index_counter()
+    with open(path, 'wb') as f:
+        pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_state(path):
+    """Load a BootstrapState pickled by save_state, in a (possibly fresh)
+    process, re-establishing the matter-field registries + dimension + index
+    counter (see section header for scope: inspection + parallel worker init).
+
+    Unpickling itself needs no registry (heads reconstruct standalone); the
+    registries are only consulted at compute time, so we unpickle first, then
+    restore the index counter, verify the dimension, and replay field
+    registration.
+    """
+    with open(path, 'rb') as f:
+        state = pickle.load(f)
+
+    # Fast-forward the (reset-to-0) fresh-index counter past every index baked
+    # into the pickled expressions, so indices allocated during the resumed
+    # run_order don't collide with the reserved/stored ones (which would break
+    # name-based index matching, e.g. the traceless ddh-box extraction).
+    saved_counter = getattr(state, '_index_counter_at_save', None)
+    if saved_counter is not None:
+        set_index_counter(saved_counter)
+
+    # Dimension must match: a set_dimension(N) checkpoint carries dim-N Lorentz
+    # heads; resuming under the default symbolic-d would silently mismatch
+    # traces (d vs N). The caller is responsible for set_dimension BEFORE import.
+    live_dim = dimension()
+    if live_dim != state._dim:
+        raise RuntimeError(
+            f"Dimension mismatch on resume: checkpoint was built with "
+            f"dim={state._dim!r} but the live module dim is {live_dim!r}. "
+            f"Call set_dimension({state._dim!r}) BEFORE importing bootstrap_loop "
+            f"(and before registering any matter field), then retry."
+        )
+
+    # Replay matter-field registration (idempotent: skip already-registered).
+    _registrars = {
+        (0, None): register_scalar_field,
+        (1, 'down'): register_vector_field,
+        (1, 'up'): register_upstairs_vector_field,
+    }
+    for name, rank, index_pos in state._field_specs:
+        if name in _matter_fields:
+            continue
+        key = (rank, None if rank == 0 else index_pos)
+        registrar = _registrars.get(key)
+        if registrar is None:
+            raise RuntimeError(
+                f"Cannot resume: unknown field spec for {name!r} "
+                f"(rank={rank}, index_pos={index_pos!r}). No matching registrar."
+            )
+        registrar(name)
+
+    return state
 
 
 
@@ -294,7 +399,7 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order,
         f_order = min(order_in_h(t) for t in f_expr.args)
     else:
         f_order = order_in_h(f_expr)
-    delta = f_order - (1 if head is h else 0)
+    delta = f_order - (1 if head == h else 0)  # == not is: pickle-safe head check
     if delta < 1:
         # Truly-linear (order-preserving) redef: nothing self-truncates, so the
         # substitution count is unbounded. We forbid these; fall back to the
@@ -393,6 +498,20 @@ class BootstrapState(TracelessRecoveryMixin):
         self.em_procedure = em_procedure
         self.verbose = verbose
         self.n_max = n_max
+
+        # Self-describing checkpoint metadata (see save_state / load_state).
+        # Captured at construction so a fresh process can replay the exact
+        # environment — spacetime dimension and matter-field registrations —
+        # before resuming. The caller has already registered all matter fields
+        # (L_matter is built from them) by the time we get here, so the
+        # registry snapshot is complete. _dim is the current Lorentz.dim
+        # (Symbol('d') on the default symbolic-d path, or a concrete int if
+        # set_dimension(N) was called).
+        self._dim = dimension()
+        self._field_specs = [
+            (info['name'], info['rank'], info.get('index_pos'))
+            for info in get_matter_fields().values()
+        ]
 
         # Optional nonminimal matter-curvature coupling C(fields)*Riemann
         # (e.g. xi*phi**2 * R for a conformally coupled scalar). Expanded into
@@ -1717,7 +1836,7 @@ class BootstrapState(TracelessRecoveryMixin):
         """
         if self.n_max is None:
             return
-        is_h = (field_info['field'] is h)
+        is_h = (field_info['field'] == h)  # == not is: pickle-safe head check
         # +1 over the naive bound: we need L_ref through order n_max+1.
         k_max_sub = self.n_max - n + (2 if is_h else 1)
         # Optimization #1: differentiate f to df/ddf ONCE for this redef and

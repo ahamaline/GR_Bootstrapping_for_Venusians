@@ -30,13 +30,12 @@ Expected:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pickle
 # d=4 for speed (plain integer coefficients, no rational-in-d overhead). The
 # symbolic-d version (d = dimension(); xi = (d-2)/(4(d-1))) is the rigorous
 # variant -- flip the next two lines + the coupling back to it for the final
-# confirmation run. The pickle below is inspection-only: cross-process resume
-# does NOT work (module globals _matter_fields and tensor-head identity don't
-# survive the pickle), so set_dimension(4) is fine here.
+# confirmation run. The checkpoint below supports cross-process resume
+# (test_..._resume.py): save_state captures _dim + _field_specs so a fresh
+# process can set_dimension(4), re-register 'phi', and continue at order 3.
 from bootstrap.tensor_algebra import set_dimension
 set_dimension(4)
 
@@ -46,7 +45,7 @@ from bootstrap.tensor_algebra import (
     register_scalar_field, fresh_indices, canon, metric, h,
 )
 from bootstrap.covariant import Riemann
-from bootstrap.bootstrap_loop import BootstrapState
+from bootstrap.bootstrap_loop import BootstrapState, save_state
 
 kappa = Symbol('kappa')
 eps_inj = Symbol('eps_inj')
@@ -83,13 +82,13 @@ for n in (1, 2):
     state.run_order(n)
     print(f"  >>> order {n} closed against L_ref (no raise).", flush=True)
 
-# Checkpoint the state after order 2 (inspection only -- see _dump_ckpt.py;
-# cross-process resume does NOT work). Non-fatal: a pickling hiccup must not
-# abort before order 3.
+# Checkpoint the state after order 2. Supports cross-process resume
+# (test_..._resume.py loads this and runs order 3 in a fresh process) and
+# inspection (_dump_ckpt.py). Non-fatal: a pickling hiccup must not abort
+# before the in-process order-3 run below.
 ckpt_path = '_conf_o3_ckpt_order2.pkl'
 try:
-    with open(ckpt_path, 'wb') as f:
-        pickle.dump(state, f)
+    save_state(state, ckpt_path)
     print(f"\nCheckpoint saved to {ckpt_path}")
 except Exception as e:
     print(f"\n[warn] checkpoint pickle failed (non-fatal): {e}")

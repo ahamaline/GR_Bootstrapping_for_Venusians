@@ -589,7 +589,7 @@ def _replace_g_with_metric(expr):
         new_factors = []
         for f in factors:
             comp = _get_component(f)
-            if comp is ginv or comp is g_down:
+            if comp == ginv or comp == g_down:  # == not is: pickle-safe head check
                 new_factors.append(metric(*_get_indices(f)))
             else:
                 new_factors.append(f)
@@ -597,7 +597,7 @@ def _replace_g_with_metric(expr):
         return canon(result) if isinstance(result, TensExpr) else result
     if isinstance(expr, Tensor):
         comp = _get_component(expr)
-        if comp is ginv or comp is g_down:
+        if comp == ginv or comp == g_down:  # == not is: pickle-safe head check
             return metric(*_get_indices(expr))
         return expr
     return expr
@@ -636,8 +636,8 @@ def _contract_ginv_g_down_pairs(expr):
     while changed and isinstance(cur, TensMul):
         changed = False
         coeff, factors = _decompose_tensmul(cur)
-        ginv_positions = [i for i, f in enumerate(factors) if _get_component(f) is ginv]
-        gdown_positions = [i for i, f in enumerate(factors) if _get_component(f) is g_down]
+        ginv_positions = [i for i, f in enumerate(factors) if _get_component(f) == ginv]  # == not is: pickle-safe
+        gdown_positions = [i for i, f in enumerate(factors) if _get_component(f) == g_down]
         for i_inv in ginv_positions:
             f_inv = factors[i_inv]
             inv_inds = _get_indices(f_inv)  # both UP
