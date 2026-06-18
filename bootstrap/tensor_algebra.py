@@ -59,6 +59,29 @@ def fresh_indices(n):
         return (result,)  # tensor_indices returns a single index for n=1
     return result
 
+def get_index_counter():
+    """Current value of the global fresh-index counter.
+
+    Needed for cross-process checkpointing: pickled expressions hold indices
+    _i0.._i(N-1) allocated under this counter, so a resuming process must
+    fast-forward its (reset-to-0) counter past N or newly-allocated indices
+    will COLLIDE with the pickled ones (silently corrupting name-based index
+    matching, e.g. the traceless ddh-box extraction). See bootstrap_loop
+    save_state / load_state.
+    """
+    return _index_counter
+
+
+def set_index_counter(value):
+    """Fast-forward the global fresh-index counter to at least `value`.
+
+    Monotonic (never rewinds) so it can't clash with indices already handed
+    out in the current process. Used by load_state on resume.
+    """
+    global _index_counter
+    _index_counter = max(_index_counter, value)
+
+
 def named_indices(names):
     """Create Lorentz indices with specific names (for readability).
     
@@ -449,10 +472,18 @@ def dimension():
 # the peak by folding. n_in ~ n_out means little to gain.
 import os as _os
 import sys as _sys
+import time as _time
 _CANON_PROFILE = bool(_os.environ.get('GRB_CANON_PROFILE'))
 _CANON_PROFILE_MIN = int(_os.environ.get('GRB_CANON_PROFILE_MIN', '300'))
 _canon_profile_records = []
 _canon_profile_sample = {'n_in': 0, 'out': None, 'caller': None}
+# Cumulative canon wall-time, to size the Amdahl ceiling for parallelizing canon:
+# how much of the run is spent in canon() at all (_canon_time_total) and in the
+# BIG canons we'd actually parallelize (_canon_time_big, n_in >= MIN). Compared
+# at exit against process wall-time (since import) -> "parallelizable canon = X%".
+_canon_time_total = 0.0
+_canon_time_big = 0.0
+_canon_wall_t0 = _time.perf_counter()
 
 
 def _canon_term_count(e):
@@ -476,9 +507,25 @@ if _CANON_PROFILE:
     import atexit as _atexit
 
     def _dump_canon_profile():
+        # Amdahl time budget FIRST (always, even with no big canons): wall-time
+        # in canon vs process -> the ceiling for parallelizing canon.
+        wall = _time.perf_counter() - _canon_wall_t0
+        f_tot = _canon_time_total / wall if wall else 0.0
+        f_big = _canon_time_big / wall if wall else 0.0
+        print(f"\n=== canon time budget (Amdahl) ===", flush=True)
+        print(f"   process wall (since import): {wall:8.1f}s", flush=True)
+        print(f"   all canon():                 {_canon_time_total:8.1f}s "
+              f"({100*f_tot:4.1f}% of wall)", flush=True)
+        print(f"   big canon (n_in>={_CANON_PROFILE_MIN}, parallelizable): "
+              f"{_canon_time_big:8.1f}s ({100*f_big:4.1f}% of wall)", flush=True)
+        for K in (4, 8, 16):
+            ceil = 1.0 / ((1 - f_big) + f_big / K)
+            print(f"   -> Amdahl ceiling if big-canon gets {K:2d}x: "
+                  f"{ceil:.2f}x end-to-end", flush=True)
+
         recs = _canon_profile_records
         if not recs:
-            print("\n=== canon collapse profile: no calls >= "
+            print(f"\n=== canon collapse profile: no calls >= "
                   f"{_CANON_PROFILE_MIN} terms ===", flush=True)
             return
         top = sorted(recs, reverse=True)[:25]
@@ -532,14 +579,21 @@ def canon(expr):
     on d being symbolic, so pure-gravity and set_dimension(N) runs (where the
     dimension is a concrete int) pay nothing.
     """
-    result = _canon_impl(expr)
-    out = _simplify_d_coeffs(result)
     if _CANON_PROFILE:
+        _t = _time.perf_counter()
+        result = _canon_impl(expr)
+        out = _simplify_d_coeffs(result)
+        dt = _time.perf_counter() - _t
+        global _canon_time_total, _canon_time_big
+        _canon_time_total += dt
         n_in = _canon_term_count(expr)
         if n_in >= _CANON_PROFILE_MIN:
+            _canon_time_big += dt
             _canon_profile_records.append(
                 (n_in, _canon_term_count(out), _canon_caller()))
-    return out
+        return out
+    result = _canon_impl(expr)
+    return _simplify_d_coeffs(result)
 
 
 def _canon_impl(expr):
