@@ -18,6 +18,7 @@ and for the Helmholtz conditions.
 from functools import lru_cache
 import os as _os
 import time as _time
+import multiprocessing as _mp
 
 from sympy import S, Rational
 from sympy.tensor.tensor import (
@@ -25,8 +26,17 @@ from sympy.tensor.tensor import (
 )
 from bootstrap.tensor_algebra import (
     metric, h, dh, ddh,
-    canon, combine_canonical, _JET_HIERARCHY,
+    canon, combine_canonical, get_index_counter, set_index_counter, _JET_HIERARCHY,
 )
+
+# fork-parallelism availability (Linux/Zeus yes, Windows no -> serial fallback).
+_FORK_OK = 'fork' in _mp.get_all_start_methods()
+# Disjoint fresh-index stride per worker: worker w offsets its counter by
+# w*_PARALLEL_STRIDE so F's internal fresh_indices can't collide across workers.
+_PARALLEL_STRIDE = 10 ** 7
+# F + input args, set in the parent BEFORE forking and inherited copy-on-write by
+# workers (so the input is never pickled; only the small per-chunk result is).
+_PARALLEL_G = {}
 
 # CanonAccumulator fold diagnostics (env-gated; see _fold/result). Reveals
 # whether folding is re-canon'ing a non-shrinking total (the regression mode).
@@ -296,6 +306,76 @@ def apply_linear_chunked(F, expr, chunk_size=64, fold_every=128):
             acc.add(r)
     result = acc.result()
     return (result, target_idx) if indexed else result
+
+
+def _parallel_chunk_worker(spec):
+    """Forked worker: F(sum of args[lo:hi]) with a DISJOINT fresh-index range so
+    any fresh_indices F allocates internally can't collide with another worker's.
+    F and the input args are inherited copy-on-write via _PARALLEL_G (never
+    pickled); only the small canon'd result is pickled back to the parent."""
+    lo, hi, base, widx = spec
+    set_index_counter(base + widx * _PARALLEL_STRIDE)
+    sub = _PARALLEL_G['args'][lo:hi]
+    return _PARALLEL_G['F'](_sum_terms(sub))
+
+
+def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
+    """Fork-parallel counterpart of apply_linear_chunked for a LINEAR builder F.
+
+    Splits expr's terms into chunks, runs F(chunk) in one forked worker per chunk
+    (fork + copy-on-write, so the input is NEVER pickled -- workers read F+args
+    from _PARALLEL_G; only the per-chunk result is pickled back), and merges with
+    combine_canonical. F linear => sum_j F(chunk_j) == F(expr).
+
+    Workers take DISJOINT fresh-index ranges (set_index_counter + _PARALLEL_STRIDE)
+    so F's internal allocations can't collide; canon (inside F) normalizes dummies
+    per term, and index-returning builders' free indices are reindexed onto a
+    common set before combining -- exactly the accumulation apply_linear_chunked
+    does serially. So this is the same computation, fork-dispatched.
+
+    Falls back to F(expr) when fork is unavailable (Windows), n_workers<=1, or the
+    input is not a big-enough TensAdd. The fork path is Linux/Zeus only; validate
+    per builder that parallel == whole (see tests/bench_parallel_builder.py).
+    """
+    if (not _FORK_OK or n_workers <= 1 or not isinstance(expr, TensAdd)
+            or len(expr.args) <= chunk_size):
+        return F(expr)
+    args = list(expr.args)
+    base = get_index_counter() + 1
+    specs = [(lo, min(lo + chunk_size, len(args)), base, w)
+             for w, lo in enumerate(range(0, len(args), chunk_size))]
+    _PARALLEL_G['F'] = F
+    _PARALLEL_G['args'] = args
+    try:
+        ctx = _mp.get_context('fork')
+        with ctx.Pool(processes=n_workers) as pool:
+            results = pool.map(_parallel_chunk_worker, specs)
+    finally:
+        _PARALLEL_G.clear()
+    # Advance the parent counter past every worker's range so subsequent parent
+    # allocations can't collide with indices baked into the gathered results.
+    set_index_counter(base + len(specs) * _PARALLEL_STRIDE)
+    # Merge (mirrors apply_linear_chunked's accumulation): reindex index-returning
+    # results onto a common free-index set, then combine (results are canonical --
+    # F canons its output -- so combine_canonical, not canon).
+    target_idx = None
+    indexed = False
+    terms = []
+    for r in results:
+        if isinstance(r, tuple):
+            indexed = True
+            rexpr, ridx = r
+            if rexpr is S.Zero or rexpr == 0:
+                continue
+            if target_idx is None:
+                target_idx = ridx
+                terms.append(rexpr)
+            else:
+                terms.append(_reindex_free(rexpr, ridx, target_idx))
+        elif r is not S.Zero and r != 0:
+            terms.append(r)
+    merged = combine_canonical(_sum_terms(terms)) if terms else S.Zero
+    return (merged, target_idx) if indexed else merged
 
 
 def _reindex_free(expr, old_indices, new_indices):
