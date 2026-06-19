@@ -125,23 +125,30 @@ def _sum_terms(terms):
 
 
 class CanonAccumulator:
-    """Incremental term accumulator that `canon`-folds periodically (opt #3).
+    """Incremental term accumulator that folds periodically to bound peak RAM.
 
     The hot builders (field-redef substitution, energy-momentum, the H2
     violation Z, the superpotential Psi) generate many terms that each carry
     distinct fresh dummies, so they do NOT combine in a plain `TensAdd` until
     `canon` normalizes the dummies. Building the whole list and `canon`-ing it
-    once therefore holds every un-combined term in RAM at peak, and runs the
-    single (superlinear-in-term-count) `canon` on the full pile.
+    once therefore holds every un-combined term in RAM at peak.
 
-    This accumulator instead folds the pending buffer into a `canon`-ed running
-    total every `fold_every` additions. Because these sums combine/cancel
-    heavily, the running total stays small, so peak live terms is bounded by
-    (running total + fold_every) and each `canon` runs on a small input.
+    This accumulator instead folds the pending buffer into a canonical running
+    total every `fold_every` additions -- but it NEVER re-canon's the total.
+    The total is already canonical, so each fold canons only the NEW batch (just
+    the raw additions; nothing at all when `inputs_canonical`) and then
+    `combine_canonical`s it into the total: collect + d-coeff, with no per-term
+    Butler-Portugal on the survivors. (Re-`canon`-ing the whole non-shrinking
+    total at every fold -- re-paying BP on terms already canonical -- was the
+    original ~10x folding regression.) Because these sums combine/cancel heavily
+    the total stays small, so peak live terms is bounded by (total + fold_every)
+    while each term pays Butler-Portugal exactly once.
 
-    Correctness: `+` is associative and `canon` is idempotent/canonicalizing,
-    so the final `result()` equals `canon` of the one-shot sum of all added
-    terms. (Validated per call-site via the A/B + regression checks.)
+    Correctness: each term is canonicalized exactly once (when first folded in),
+    and `combine_canonical` of already-canonical terms equals `canon` of their
+    sum (it skips only the redundant re-BP), so `result()` equals `canon` of the
+    one-shot sum of all added terms. (Validated structurally + via the ==0-gate
+    regression, including forced-pressure folding.)
 
     Usage:
         acc = CanonAccumulator(fold_every=50)
@@ -151,11 +158,18 @@ class CanonAccumulator:
     """
 
     __slots__ = ('fold_every', '_buf', '_total', '_nfolds', '_nadded',
-                 '_maxtotal', '_foldsecs', '_check_at')
+                 '_maxtotal', '_foldsecs', '_check_at', '_inputs_canonical')
 
-    def __init__(self, fold_every=50):
+    def __init__(self, fold_every=50, inputs_canonical=False):
         self.fold_every = fold_every
-        self._buf = []          # pending, un-canon'd terms
+        # inputs_canonical: caller guarantees every added term is ALREADY in
+        # canonical form (e.g. apply_linear_chunked adds F(chunk) where F canons
+        # its own output). Then the fold needs NO Butler-Portugal at all -- it
+        # just combines. Default False: added terms may be raw (e.g.
+        # _substitute_field adds un-canon'd products), so the fold first-canons
+        # the NEW batch, then combines it into the canonical total.
+        self._inputs_canonical = inputs_canonical
+        self._buf = []          # pending terms (raw unless inputs_canonical)
         self._total = S.Zero    # canon'd running total
         self._check_at = fold_every  # buffer size at which to re-check pressure
         self._nfolds = 0        # diagnostics (GRB_REDEF_PROFILE)
@@ -187,21 +201,32 @@ class CanonAccumulator:
     def _fold(self):
         if not self._buf:
             return
-        if self._total is S.Zero:
-            partial = _sum_terms(self._buf)
+        t0 = _time.time() if _REDEF_PROFILE else 0.0
+        # The running _total is ALREADY canonical (prior folds), so it must never
+        # be re-canon'd -- that redundant per-term Butler-Portugal on a
+        # non-shrinking total was the ~10x folding regression. Instead:
+        #   * inputs_canonical: the new buffer is canonical too -> just COMBINE
+        #     total + buffer (collect, no BP at all).
+        #   * else: the new buffer is raw -> first-canon ONLY the new batch, then
+        #     COMBINE it into the canonical total (BP each term once, never again).
+        if self._inputs_canonical:
+            parts = [self._total, *self._buf] if self._total is not S.Zero else list(self._buf)
+            merged = _sum_terms(parts)
+            self._total = combine_canonical(merged) if isinstance(merged, TensExpr) else merged
         else:
-            partial = _sum_terms([self._total, *self._buf])
+            new = _sum_terms(self._buf)
+            new = canon(new) if isinstance(new, TensExpr) else new
+            if self._total is S.Zero:
+                self._total = new
+            elif new is not S.Zero and new != 0:
+                merged = _sum_terms([self._total, new])
+                self._total = combine_canonical(merged) if isinstance(merged, TensExpr) else merged
+        self._nfolds += 1
         if _REDEF_PROFILE:
-            t0 = _time.time()
-            self._total = canon(partial) if isinstance(partial, TensExpr) else partial
             self._foldsecs += _time.time() - t0
-            self._nfolds += 1
             n = len(self._total.args) if isinstance(self._total, TensAdd) else 1
             if n > self._maxtotal:
                 self._maxtotal = n
-        else:
-            self._total = canon(partial) if isinstance(partial, TensExpr) else partial
-            self._nfolds += 1
         self._buf = []
 
     def result(self):
@@ -248,7 +273,10 @@ def apply_linear_chunked(F, expr, chunk_size=64, fold_every=128):
             or not _mem_pressure()):
         return F(expr)
     args = expr.args
-    acc = CanonAccumulator(fold_every=fold_every)
+    # F canons its own output (and _reindex_free below canons too), so every term
+    # added to the accumulator is already canonical -> folds are pure combine
+    # (no Butler-Portugal), the cheap memory-bounding path.
+    acc = CanonAccumulator(fold_every=fold_every, inputs_canonical=True)
     target_idx = None
     indexed = False
     for i in range(0, len(args), chunk_size):
