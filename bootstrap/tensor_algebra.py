@@ -565,7 +565,7 @@ if _CANON_CAPTURE:
             terms = [t for t in terms if t is not S.Zero and t != 0]
             if not terms:
                 return S.Zero
-            r = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
+            r = terms[0] if len(terms) == 1 else TensAdd(*terms).doit(deep=False)
             return _simplify_d_coeffs(r) if isinstance(r, TensExpr) else r
 
         rows = sorted(_canon_capture.items(), key=lambda kv: -kv[1][0])
@@ -678,7 +678,13 @@ def combine_canonical(expr):
              if t is not S.Zero and t != 0]
     if not terms:
         return S.Zero
-    result = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
+    # doit(deep=False): collect like terms (the O(N) defaultdict hash in
+    # _tensAdd_collect_terms) WITHOUT re-running .doit() on every arg. The terms
+    # are already canonical/contracted, so the default deep=True -- which re-runs
+    # _tensMul_contract_indices on each of the N args -- is pure redundant work
+    # (measured ~6x slower, and worse than canon on collapse-heavy sums). This is
+    # exactly what TensAdd.canon_bp does after per-term BP: doit(deep=False).
+    result = terms[0] if len(terms) == 1 else TensAdd(*terms).doit(deep=False)
     return _simplify_d_coeffs(result) if isinstance(result, TensExpr) else result
 
 
