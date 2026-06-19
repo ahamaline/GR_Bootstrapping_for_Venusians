@@ -29,7 +29,7 @@ from sympy import S, Rational, Symbol
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 
 from bootstrap.tensor_algebra import (
-    h, dh, ddh, fresh_indices, canon, metric, _matter_fields,
+    h, dh, ddh, fresh_indices, canon, combine_canonical, metric, _matter_fields,
     get_tensors_in_expr, filter_by_order, order_in_h,
     dimension, get_matter_fields, get_index_counter, set_index_counter,
     register_scalar_field, register_vector_field, register_upstairs_vector_field,
@@ -465,7 +465,10 @@ def _substitute_field(L, field_info, f_expr, f_indices, target_order,
         return S.Zero
     truncated = TensAdd(*truncated_terms) if len(truncated_terms) > 1 else truncated_terms[0]
     if isinstance(truncated, TensExpr):
-        truncated = canon(truncated)
+        # Provenance: result = acc.result() is canonical (CanonAccumulator folds
+        # the buffer through canon), so its args -- and this order-filtered
+        # subset of them -- are already canonical -> recombine WITHOUT canon_bp.
+        truncated = combine_canonical(truncated)
     return truncated
 
 
@@ -703,7 +706,9 @@ class BootstrapState(TracelessRecoveryMixin):
             E = E + self.W if E != S.Zero else self.W
 
         if isinstance(E, TensExpr):
-            E = canon(E)
+            # Provenance: E = kappa * (canonical EM output, reindexed at
+            # loop_helpers:172) + W (precomputed canonical) -> sum of canonicals.
+            E = combine_canonical(E)
         return E
 
     def _step2_eom_carryover(self, E, n):
@@ -814,14 +819,17 @@ class BootstrapState(TracelessRecoveryMixin):
                 print(f"    Step 2 carryover: no contribution (all X.E vanish)")
             return E
         if isinstance(correction, TensExpr):
-            correction = canon(correction)
+            # Provenance: each term was canon'd at its build (line ~811), so the
+            # accumulated correction is a sum of canonical terms.
+            correction = combine_canonical(correction)
         if self.verbose:
             for label, count in contribs:
                 print(f"    Step 2 carryover: {label}  ({count} terms)")
             print(f"    Step 2 carryover total: {_format_breakdown(correction)}")
         E_new = E + correction
         if isinstance(E_new, TensExpr):
-            E_new = canon(E_new)
+            # Provenance: E canonical (step1) + correction canonical (above).
+            E_new = combine_canonical(E_new)
         return E_new
 
     def _step3_mandatory_eom(self, E, n):
@@ -967,7 +975,9 @@ class BootstrapState(TracelessRecoveryMixin):
 
         E_new = E + correction
         if isinstance(E_new, TensExpr):
-            E_new = canon(E_new)
+            # Provenance: E canonical (step2) + correction a sum of per-term
+            # canon'd corrections (X_h.E0 and X_phi.E_phi, each canon'd above).
+            E_new = combine_canonical(E_new)
 
         # Post-correction Z is zero by construction (decomposition residual was
         # 0; X = -1/(2(n+1)) Y·h is built to cancel Z) and is independently
@@ -1363,7 +1373,9 @@ class BootstrapState(TracelessRecoveryMixin):
         if self.verbose:
             print(f"    Delta = Psi_(,rho sigma): {_format_breakdown(Delta)}")
             print(f"    Superpotential term added")
-        return canon(E + Delta) if Delta != S.Zero else E
+        # Provenance: E is canonical (prior step's canon) and Delta is canonical
+        # (_reindex_tensor canons at loop_helpers:172) -> sum of canonicals.
+        return combine_canonical(E + Delta) if Delta != S.Zero else E
 
     def _step6_close_loop(self, E, n):
         """L^{(n+1)} = (1/(n+1)) · E^{μν(n)} · h_{μν} + boundary terms.
@@ -1874,7 +1886,10 @@ class BootstrapState(TracelessRecoveryMixin):
             else:
                 new_L = TensAdd(*contributions)
             if isinstance(new_L, TensExpr):
-                new_L = canon(new_L)
+                # Provenance: each contribution is filter_by_order of a canonical
+                # source (substituted[k] from _substitute_field, or self.L_ref[k])
+                # -> all canonical -> recombine WITHOUT re-paying canon_bp.
+                new_L = combine_canonical(new_L)
             old_L = self.L_ref.get(j, S.Zero)
             self.L_ref[j] = new_L
             if self.verbose:

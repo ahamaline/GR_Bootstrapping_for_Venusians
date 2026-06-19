@@ -484,6 +484,13 @@ _canon_profile_sample = {'n_in': 0, 'out': None, 'caller': None}
 _canon_time_total = 0.0
 _canon_time_big = 0.0
 _canon_wall_t0 = _time.perf_counter()
+# combine_canonical eligibility capture: with GRB_CANON_CAPTURE=1, record the
+# LARGEST input expr seen at each canon caller, then at exit structurally A/B
+# canon vs combine_canonical (BP-free) per caller. A caller is combine-ELIGIBLE
+# iff combine reproduces canon's exact FORM (a == b) -- i.e. its input is already
+# canonical (recombination), so the canon there is redundant re-BP.
+_CANON_CAPTURE = bool(_os.environ.get('GRB_CANON_CAPTURE'))
+_canon_capture = {}  # caller -> (n_in, input_expr)
 
 
 def _canon_term_count(e):
@@ -549,6 +556,37 @@ if _CANON_PROFILE:
     _atexit.register(_dump_canon_profile)
 
 
+if _CANON_CAPTURE:
+    import atexit as _atexit_cap
+
+    def _dump_canon_capture():
+        def _combine_canonical(e):
+            terms = list(e.args) if isinstance(e, TensAdd) else [e]
+            terms = [t for t in terms if t is not S.Zero and t != 0]
+            if not terms:
+                return S.Zero
+            r = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
+            return _simplify_d_coeffs(r) if isinstance(r, TensExpr) else r
+
+        rows = sorted(_canon_capture.items(), key=lambda kv: -kv[1][0])
+        print(f"\n=== combine_canonical eligibility by canon caller "
+              f"({len(rows)} sites; largest input each) ===", flush=True)
+        print(f"   {'ELIGIBLE?':9s} {'n_in':>6s} {'speedup':>8s}  caller", flush=True)
+        for caller, (n_in, expr) in rows:
+            t = _time.perf_counter()
+            a = _simplify_d_coeffs(_canon_impl(expr))
+            ta = _time.perf_counter() - t
+            t = _time.perf_counter()
+            b = _combine_canonical(expr)
+            tb = _time.perf_counter() - t
+            elig = (a == b)              # structural: combine reproduces canon's FORM
+            sp = (ta / tb) if tb > 0 else float('inf')
+            tag = "ELIGIBLE " if elig else "  no     "
+            print(f"   {tag} {n_in:6d} {sp:7.1f}x  {caller}", flush=True)
+
+    _atexit_cap.register(_dump_canon_capture)
+
+
 def canon(expr):
     """Canonicalize a tensor expression.
 
@@ -579,6 +617,13 @@ def canon(expr):
     on d being symbolic, so pure-gravity and set_dimension(N) runs (where the
     dimension is a concrete int) pay nothing.
     """
+    if _CANON_CAPTURE:
+        _n = _canon_term_count(expr)
+        if _n >= 2:
+            _c = _canon_caller()
+            _prev = _canon_capture.get(_c)
+            if _prev is None or _n > _prev[0]:
+                _canon_capture[_c] = (_n, expr)
     if _CANON_PROFILE:
         _t = _time.perf_counter()
         result = _canon_impl(expr)
@@ -594,6 +639,47 @@ def canon(expr):
         return out
     result = _canon_impl(expr)
     return _simplify_d_coeffs(result)
+
+
+def combine_canonical(expr):
+    """Recombine ALREADY-CANONICAL terms WITHOUT re-running Butler-Portugal.
+
+    A drop-in for `canon` ONLY at recombination sites where every term of `expr`
+    is GUARANTEED BY CONSTRUCTION to be in canonical form already — i.e. each
+    term was produced by a prior `canon`. It collects like terms (the TensAdd
+    constructor's collect pass) and runs the gated d-coefficient simplification,
+    but skips the per-term `canon_bp` that `canon` would redundantly repeat
+    (the bulk of canon's cost — see the canon time-budget profile).
+
+    It IS "canon minus Butler-Portugal": it still distributes (`.expand()`, so
+    an undistributed `A - B` = `TensMul(-1, TensAdd)` can't leak out and crash
+    downstream `_decompose_tensmul`/`jet_derivative`) and collects, but it does
+    NO per-term canon_bp and NO metric/delta contraction.
+
+    SAFETY CONTRACT — do NOT use this as a blind canon replacement. Because it
+    performs no Butler-Portugal and no metric/delta contraction, if even one term
+    can arrive non-canonical (a bare single Tensor that never went through canon,
+    a freshly-built product with uncontracted deltas, etc.) the result is WRONG
+    (non-canonical form silently breaks downstream `== 0` gates). Each call site
+    must be justified by a static provenance audit proving all incoming terms
+    are canonical; where a producing branch can return raw, push a `canon` down
+    to that branch first. Validate every swap STRUCTURALLY (combine == canon as
+    expressions, not merely canon(combine - canon) == 0) and via the regression
+    suite.
+    """
+    if not isinstance(expr, TensExpr):
+        return expr
+    # Distribute exactly as canon does (combine skips per-term BP, NOT the
+    # distribution); leaving a TensMul(scalar, TensAdd) breaks downstream jets.
+    expr = expr.expand()
+    if not isinstance(expr, TensExpr):
+        return expr
+    terms = [t for t in (expr.args if isinstance(expr, TensAdd) else [expr])
+             if t is not S.Zero and t != 0]
+    if not terms:
+        return S.Zero
+    result = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
+    return _simplify_d_coeffs(result) if isinstance(result, TensExpr) else result
 
 
 def _canon_impl(expr):

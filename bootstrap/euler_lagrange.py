@@ -14,7 +14,7 @@ Also provides:
 from sympy import S, Rational
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 from bootstrap.tensor_algebra import (
-    Lorentz, metric, h, dh, ddh, fresh_indices, canon, _JET_HIERARCHY
+    Lorentz, metric, h, dh, ddh, fresh_indices, canon, combine_canonical, _JET_HIERARCHY
 )
 from bootstrap.jet import jet_derivative, total_derivative, _decompose_tensmul, _sum_terms
 
@@ -120,7 +120,9 @@ def remove_second_derivatives(lagrangian, heads_to_process=None):
     for dd_head in heads_to_process:
         result = _ibp_via_jet_deriv(result, dd_head)
 
-    return canon(result) if isinstance(result, TensExpr) else result
+    # Provenance: _ibp_via_jet_deriv canons its output (euler_lagrange:~263), so
+    # result is canonical after the loop regardless of the input -> combine.
+    return combine_canonical(result) if isinstance(result, TensExpr) else result
 
 
 def _ibp_via_jet_deriv(expr, dd_head):

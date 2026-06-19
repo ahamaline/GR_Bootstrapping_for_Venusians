@@ -25,7 +25,7 @@ from sympy.tensor.tensor import (
 )
 from bootstrap.tensor_algebra import (
     metric, h, dh, ddh,
-    canon, _JET_HIERARCHY,
+    canon, combine_canonical, _JET_HIERARCHY,
 )
 
 # CanonAccumulator fold diagnostics (env-gated; see _fold/result). Reveals
@@ -545,7 +545,10 @@ def jet_derivative(expr, wrt_head, wrt_indices):
     if isinstance(expr, TensAdd):
         terms = [jet_derivative(t, wrt_head, wrt_indices) for t in expr.args]
         result = _sum_terms(terms)
-        return canon(result) if isinstance(result, TensExpr) else result
+        # Provenance: every branch that produces a term already canon's it
+        # (Tensor->552, TensMul->572, scalar-coeff->582, recursive TensAdd->here),
+        # so all terms are canonical -> recombine WITHOUT re-paying canon_bp.
+        return combine_canonical(result) if isinstance(result, TensExpr) else result
 
     # Handle single tensor atom
     if isinstance(expr, Tensor):
@@ -640,10 +643,17 @@ def total_derivative(expr, deriv_index):
     if isinstance(expr, TensAdd):
         terms = [total_derivative(t, deriv_index) for t in expr.args]
         result = _sum_terms(terms)
-        return canon(result) if isinstance(result, TensExpr) else result
+        # Provenance: terms come from the Tensor branch (now canon'd at 646),
+        # the TensMul/Leibniz branch (canon'd at 665), or recursion (here) --
+        # all canonical -> recombine WITHOUT re-paying canon_bp.
+        return combine_canonical(result) if isinstance(result, TensExpr) else result
 
     if isinstance(expr, Tensor):
-        return _total_derivative_of_factor(expr, deriv_index)
+        # Single-Tensor term: _total_derivative_of_factor returns a RAW factor
+        # (e.g. dh -> ddh with the new index appended, indices unsorted), which
+        # never otherwise passes through canon. canon it HERE so the TensAdd
+        # recombination above can safely use combine_canonical.
+        return canon(_total_derivative_of_factor(expr, deriv_index))
 
     if isinstance(expr, TensMul):
         coeff, factors = _decompose_tensmul(expr)

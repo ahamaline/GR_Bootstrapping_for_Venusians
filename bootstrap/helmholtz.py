@@ -22,7 +22,7 @@ from sympy import S, Rational, Symbol, integrate
 from sympy.tensor.tensor import TensAdd, TensMul, TensExpr, Tensor
 from bootstrap.tensor_algebra import (
     h, dh, ddh,
-    fresh_indices, canon, _matter_fields,
+    fresh_indices, canon, combine_canonical, _matter_fields,
     NATURAL_POSITIONS, swap_free_indices,
 )
 from bootstrap.jet import (
@@ -345,8 +345,10 @@ def superpotential_divergence(Psi, psi_indices):
     
     # Second derivative: ∂_rho (∂_sigma Psi)
     Delta = total_derivative(d1, -rho_f)
-    
-    return canon(Delta) if isinstance(Delta, TensExpr) else Delta
+
+    # Provenance: total_derivative returns canonical output on every branch, so
+    # Delta is already canonical -> recombine WITHOUT re-paying canon_bp.
+    return combine_canonical(Delta) if isinstance(Delta, TensExpr) else Delta
 
 
 # ---------------------------------------------------------------------------
