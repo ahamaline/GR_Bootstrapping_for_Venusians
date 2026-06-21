@@ -565,7 +565,7 @@ if _CANON_CAPTURE:
             terms = [t for t in terms if t is not S.Zero and t != 0]
             if not terms:
                 return S.Zero
-            r = terms[0] if len(terms) == 1 else TensAdd(*terms).doit(deep=False)
+            r = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
             return _simplify_d_coeffs(r) if isinstance(r, TensExpr) else r
 
         rows = sorted(_canon_capture.items(), key=lambda kv: -kv[1][0])
@@ -678,13 +678,18 @@ def combine_canonical(expr):
              if t is not S.Zero and t != 0]
     if not terms:
         return S.Zero
-    # doit(deep=False): collect like terms (the O(N) defaultdict hash in
-    # _tensAdd_collect_terms) WITHOUT re-running .doit() on every arg. The terms
-    # are already canonical/contracted, so the default deep=True -- which re-runs
-    # _tensMul_contract_indices on each of the N args -- is pure redundant work
-    # (measured ~6x slower, and worse than canon on collapse-heavy sums). This is
-    # exactly what TensAdd.canon_bp does after per-term BP: doit(deep=False).
-    result = terms[0] if len(terms) == 1 else TensAdd(*terms).doit(deep=False)
+    # doit() with deep=True (default), NOT deep=False. A scaling microbenchmark
+    # suggested deep=False (~6x faster in isolation, since it skips the per-arg
+    # _tensMul_contract_indices), but that was MISLEADING: deep=True's per-arg
+    # .doit() also RESOLVES cross-term dummy-index conflicts (SymPy renames
+    # clashing dummies across the summed args), producing output that is far
+    # cheaper DOWNSTREAM. With deep=False the output is mathematically equal (==0
+    # gates pass) but carries dummy conflicts that make every later operation
+    # costlier -- catastrophically for dummy-heavy cases: on Zeus, deep=False made
+    # Proca (run 4) ~2.8x SLOWER at order 4 / +59% over the whole run, vs
+    # deep=True being -11%. The microbenchmark, discarding the result, never saw
+    # that downstream cost. So: deep=True. (See git history / DEVELOPMENT_STATUS.)
+    result = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
     return _simplify_d_coeffs(result) if isinstance(result, TensExpr) else result
 
 
