@@ -486,21 +486,33 @@ non-canonical term won't collect, so a supposed-zero fails its `==0` gate (a LOU
 failure, not a silent wrong answer). Wired at the recombination sites (step 1/2/3/5,
 field-redef substitution, `remove_second_derivatives`, `superpotential_divergence`,
 the `CanonAccumulator` fold). Validated STRUCTURALLY (`combine == canon` as
-expressions, not `canon(combine−canon)==0`, which hides form differences). Net: a
-modest reliable win — combine is not the dominant cost (BP inside the builders is).
+expressions, not `canon(combine−canon)==0`, which hides form differences). **Net
+(perf): unproven.** combine is correct and harmless (identical output to `canon`),
+but any speedup is UNconfirmed — the cross-run Zeus comparisons that suggested a win
+(e.g. "−11%/−13% vs mg") are confounded by time-varying node contention (see the deep=
+lesson below), and combine is only a small slice of the total regardless (BP inside
+the builders dominates). Kept because it's safe and at-worst-neutral, not for a
+measured gain.
 
-**deep= settled (2026-06-21).** combine's `TensAdd.doit()` runs at `deep=_COMBINE_DEEP`
-(env `GRB_COMBINE_DEEP`, default **deep=False**). On post-BP terms the per-arg `.doit()`
-(re-contraction) is redundant; deep=False skips it. An earlier reading — "deep=False
-regressed Proca ~2.8x" — triggered a revert (35c07c8) but was a CONFOUND: that build
-also carried the CanonAccumulator fold rework AND it was a cross-node comparison. A
-controlled SAME-MACHINE A/B (pure gravity order 3, 3 alternating rounds) found
-deep=True 454.0s vs deep=False 452.4s — statistically identical (0.35%, within noise).
-deep=True and deep=False produce byte-identical output (verified including raw / mixed
-/ cross-dummy inputs; `tests/_deep_probe.py`). Default deep=False (less redundant work,
-matches `canon_bp`'s own deep=False); `GRB_COMBINE_DEEP=1` restores deep=True to
-re-confirm on Zeus. **LESSON (recurred several times):** Zeus walltime varies ~2-3x by
-node; judge a perf change only via a same-machine alternating A/B, never cross-node.
+**deep= default chosen; perf question OPEN (2026-06-21).** combine's `TensAdd.doit()`
+runs at `deep=_COMBINE_DEEP` (env `GRB_COMBINE_DEEP`, default **deep=False**). On
+post-BP terms the per-arg `.doit()` (re-contraction) is redundant; deep=False skips it,
+and deep=True / deep=False produce byte-identical output (verified including raw /
+mixed / cross-dummy inputs; `tests/_deep_probe.py`). A controlled SAME-MACHINE A/B
+(pure gravity order 3, 3 alternating rounds) found deep=True 454.0s vs deep=False
+452.4s — statistically identical. BUT that is gravity at low order; the Zeus Proca runs
+showed the deep=False ("df") build slower than the deep=True ("fast") build at HIGH
+order (o4 ≈ 2.76×). This is NOT attributable: (a) the historical fast/df builds likely
+also differ by the CanonAccumulator fold rework, and (b) HPC walltime is confounded by
+time-varying node contention from other tenants — so even the "low orders match, high
+orders blow up" pattern is consistent with a contention spike during the multi-hour
+high-order window, not necessarily a code effect. So whether deep=False helps, hurts,
+or is neutral at high-order Proca is UNRESOLVED. Default is deep=False (does less
+redundant work, matches `canon_bp`'s own deep=False, neutral on the clean A/B);
+`GRB_COMBINE_DEEP=1` restores deep=True. To settle it: an EXCLUSIVE-node (`place=excl`)
+same-machine A/B on Proca at high order. **LESSON (recurred several times):** cross-run
+HPC walltime comparisons are untrustworthy — node hardware AND time-varying contention
+both vary; only an exclusive-node, same-machine, alternating A/B is conclusive.
 
 ### Builder-chunk parallelism — wired, pending Zeus end-to-end (branch `parallelize-canon`)
 
