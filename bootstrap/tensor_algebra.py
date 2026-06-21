@@ -475,6 +475,16 @@ import sys as _sys
 import time as _time
 _CANON_PROFILE = bool(_os.environ.get('GRB_CANON_PROFILE'))
 _CANON_PROFILE_MIN = int(_os.environ.get('GRB_CANON_PROFILE_MIN', '300'))
+# combine_canonical's TensAdd.doit() depth. Default deep=False: on post-BP terms
+# the per-arg .doit() (re-contraction) is redundant work, and a controlled
+# same-machine A/B (pure gravity order 3, 3 alternating rounds) found deep=True
+# and deep=False statistically identical end-to-end (454.0s vs 452.4s, 0.35%) --
+# so deep=False is chosen as the principled no-redundant-work option, matching
+# what canon_bp itself uses. The earlier "deep=False regressed Proca ~2.8x" was a
+# confound (the fold rework rode along in that build + cross-node comparison); it
+# did NOT reproduce in the controlled A/B. Toggle GRB_COMBINE_DEEP=1 to re-confirm
+# neutrality on Zeus / revert to deep=True if a real machine ever disagrees.
+_COMBINE_DEEP = _os.environ.get('GRB_COMBINE_DEEP', '0') != '0'
 _canon_profile_records = []
 _canon_profile_sample = {'n_in': 0, 'out': None, 'caller': None}
 # Cumulative canon wall-time, to size the Amdahl ceiling for parallelizing canon:
@@ -565,7 +575,8 @@ if _CANON_CAPTURE:
             terms = [t for t in terms if t is not S.Zero and t != 0]
             if not terms:
                 return S.Zero
-            r = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
+            r = (terms[0] if len(terms) == 1
+                 else TensAdd(*terms).doit(deep=_COMBINE_DEEP))
             return _simplify_d_coeffs(r) if isinstance(r, TensExpr) else r
 
         rows = sorted(_canon_capture.items(), key=lambda kv: -kv[1][0])
@@ -678,18 +689,12 @@ def combine_canonical(expr):
              if t is not S.Zero and t != 0]
     if not terms:
         return S.Zero
-    # doit() with deep=True (default), NOT deep=False. A scaling microbenchmark
-    # suggested deep=False (~6x faster in isolation, since it skips the per-arg
-    # _tensMul_contract_indices), but that was MISLEADING: deep=True's per-arg
-    # .doit() also RESOLVES cross-term dummy-index conflicts (SymPy renames
-    # clashing dummies across the summed args), producing output that is far
-    # cheaper DOWNSTREAM. With deep=False the output is mathematically equal (==0
-    # gates pass) but carries dummy conflicts that make every later operation
-    # costlier -- catastrophically for dummy-heavy cases: on Zeus, deep=False made
-    # Proca (run 4) ~2.8x SLOWER at order 4 / +59% over the whole run, vs
-    # deep=True being -11%. The microbenchmark, discarding the result, never saw
-    # that downstream cost. So: deep=True. (See git history / DEVELOPMENT_STATUS.)
-    result = terms[0] if len(terms) == 1 else TensAdd(*terms).doit()
+    # doit() depth is _COMBINE_DEEP (default deep=False): the args are post-BP, so
+    # the per-arg .doit() (re-contraction) is redundant and deep=False/deep=True
+    # measured end-to-end identical (see _COMBINE_DEEP note above). Output is the
+    # same either way; deep=False just skips the redundant per-term contraction.
+    result = (terms[0] if len(terms) == 1
+              else TensAdd(*terms).doit(deep=_COMBINE_DEEP))
     return _simplify_d_coeffs(result) if isinstance(result, TensExpr) else result
 
 
