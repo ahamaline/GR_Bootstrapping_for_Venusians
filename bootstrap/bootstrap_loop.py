@@ -37,7 +37,7 @@ from bootstrap.tensor_algebra import (
 from bootstrap.euler_lagrange import euler_lagrange, euler_lagrange_scalar, remove_second_derivatives
 from bootstrap.jet import (
     total_derivative, jet_derivative, _decompose_tensmul, _get_component,
-    _get_indices, _sum_terms, CanonAccumulator, apply_linear_chunked,
+    _get_indices, _sum_terms, CanonAccumulator, apply_linear,
 )
 from bootstrap.eom_decompose import decompose_against_eoms
 from bootstrap.helmholtz import (
@@ -75,7 +75,7 @@ _REDEF_FOLD_EVERY = 64
 # flip to True to re-enable for debugging.
 _RECHECK_H2_AFTER_CORRECTION = False
 
-# Chunk size for chunkwise-linear construction (apply_linear_chunked) of the big
+# Chunk size for chunkwise-linear construction (apply_linear dispatcher) of the big
 # linear builders (EL recompute, Z, E_1, Psi). Bounds the peak intermediate to
 # ~(chunk/|input|)x the full inflation. Tunable; smaller = lower peak, more
 # per-chunk overhead.
@@ -687,10 +687,10 @@ class BootstrapState(TracelessRecoveryMixin):
                 print(f"    Computing {em_name} energy-momentum tensor "
                       f"from L^({n}) ({_format_breakdown(L_n)})")
             if self.em_procedure == 'hilbert':
-                T_mn, T_idx = apply_linear_chunked(
+                T_mn, T_idx = apply_linear(
                     hilbert_energy_momentum, L_n, chunk_size=_LINEAR_CHUNK)
             elif self.em_procedure == 'belinfante':
-                T_mn, T_idx = apply_linear_chunked(
+                T_mn, T_idx = apply_linear(
                     symmetrized_belinfante, L_n, chunk_size=_LINEAR_CHUNK)
             else:
                 raise NotImplementedError(self.em_procedure)
@@ -855,7 +855,7 @@ class BootstrapState(TracelessRecoveryMixin):
             if self.verbose:
                 print(f"    H2 check skipped (E is zero)")
             return E
-        Z, h_indices = apply_linear_chunked(
+        Z, h_indices = apply_linear(
             lambda x: compute_h2_violation(x, (self.mu_E, self.nu_E)),
             E, chunk_size=_LINEAR_CHUNK)
         if Z == S.Zero:
@@ -1364,7 +1364,7 @@ class BootstrapState(TracelessRecoveryMixin):
         if self.verbose:
             print(f"    Psi^({n}) symmetries: OK; Psi: {_format_breakdown(Psi)}")
 
-        Delta = apply_linear_chunked(
+        Delta = apply_linear(
             lambda x: superpotential_divergence(x, psi_idx), Psi,
             chunk_size=_LINEAR_CHUNK)
         Delta = _reindex_tensor(Delta, (psi_idx[0], psi_idx[1]),
@@ -1419,7 +1419,7 @@ class BootstrapState(TracelessRecoveryMixin):
                 print(f"  Verify EL(L^({n+1})) == E^({n}): both zero, OK")
             return True
 
-        E_check, E_check_idx = apply_linear_chunked(
+        E_check, E_check_idx = apply_linear(
             lambda x: euler_lagrange(x, h), L_next, chunk_size=_LINEAR_CHUNK)
         E_check = _reindex_tensor(E_check, E_check_idx, (self.mu_E, self.nu_E))
 
@@ -1524,7 +1524,7 @@ class BootstrapState(TracelessRecoveryMixin):
         if L_r == S.Zero:
             E_r = S.Zero
         else:
-            E_r, E_r_idx = apply_linear_chunked(
+            E_r, E_r_idx = apply_linear(
                 lambda x: euler_lagrange(x, h), L_r, chunk_size=_LINEAR_CHUNK)
             E_r = _reindex_tensor(E_r, E_r_idx, (self.mu_E, self.nu_E))
         E_diff = self.E[n] - E_r
@@ -1595,7 +1595,7 @@ class BootstrapState(TracelessRecoveryMixin):
                 # exactly cancel the original diff. If not 0, the redef
                 # didn't fully absorb the diff — either the substitution is
                 # incomplete, or h-redef is needed in addition (X_h ≠ 0).
-                E_r_new_expr, E_r_new_idx = apply_linear_chunked(
+                E_r_new_expr, E_r_new_idx = apply_linear(
                     lambda x: euler_lagrange(x, h), self.L_ref[target_n],
                     chunk_size=_LINEAR_CHUNK)
                 E_r_new = _reindex_tensor(E_r_new_expr, E_r_new_idx, (self.mu_E, self.nu_E))

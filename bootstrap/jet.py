@@ -37,6 +37,12 @@ _PARALLEL_STRIDE = 10 ** 7
 # F + input args, set in the parent BEFORE forking and inherited copy-on-write by
 # workers (so the input is never pickled; only the small per-chunk result is).
 _PARALLEL_G = {}
+# Builder-chunk parallelism dispatch (apply_linear). GRB_N_WORKERS=1 (default) ->
+# fully serial (inert); K>1 on a fork platform fork-parallelizes linear builders
+# over K chunks. GRB_PARALLEL_MIN: only parallelize inputs with >= this many terms
+# (below it the fork overhead -- ~0.84x at K=1 in the bench -- isn't worth it).
+_N_WORKERS = int(_os.environ.get('GRB_N_WORKERS', '1'))
+_PARALLEL_MIN = int(_os.environ.get('GRB_PARALLEL_MIN', '128'))
 
 # CanonAccumulator fold diagnostics (env-gated; see _fold/result). Reveals
 # whether folding is re-canon'ing a non-shrinking total (the regression mode).
@@ -376,6 +382,31 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
             terms.append(r)
     merged = combine_canonical(_sum_terms(terms)) if terms else S.Zero
     return (merged, target_idx) if indexed else merged
+
+
+def apply_linear(F, expr, chunk_size=64, fold_every=128):
+    """Dispatch a LINEAR builder F over expr's terms: parallel if configured, else
+    serial. Drop-in for apply_linear_chunked (same signature + return shape).
+
+    * GRB_N_WORKERS<=1 (default): serial apply_linear_chunked -- whole-input call
+      unless under memory pressure. Fully inert: swapping call sites to apply_linear
+      changes NOTHING until GRB_N_WORKERS is set.
+    * GRB_N_WORKERS=K>1 on a fork platform, input a TensAdd with >= GRB_PARALLEL_MIN
+      terms: fork-parallel over ~K chunks (chunk = ceil(len/K), one per worker --
+      the shape validated in tests/bench_parallel_builder.py). Falls back to serial
+      otherwise (no fork / small input / not a TensAdd).
+
+    Linear means F(A+B)==F(A)+F(B), F(0)==0; only such builders may use this. Both
+    backends return (expr, free_indices) for index-returning F and a bare expr
+    otherwise -- identical to a direct F(expr) call.
+    """
+    if (_N_WORKERS > 1 and _FORK_OK and isinstance(expr, TensAdd)
+            and len(expr.args) >= _PARALLEL_MIN):
+        import math
+        chunk = max(1, math.ceil(len(expr.args) / _N_WORKERS))
+        return parallel_apply_linear(F, expr, _N_WORKERS, chunk_size=chunk)
+    return apply_linear_chunked(F, expr, chunk_size=chunk_size,
+                                fold_every=fold_every)
 
 
 def _reindex_free(expr, old_indices, new_indices):
