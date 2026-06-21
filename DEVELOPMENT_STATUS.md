@@ -473,6 +473,59 @@ budget) conformal still closes. `_REDEF_FOLD_EVERY=64` is now just the under-pre
 fold granularity. **TODO: recommit + redeploy (restart `_chunk` runs); the currently
 deployed `_chunk` runs carry the always-on regression and should be restarted.**
 
+### combine_canonical — skip redundant Butler-Portugal at recombination sites (committed)
+
+`canon`'s cost is per-term Butler-Portugal (BP), not term count (see the chunking
+verdict above). At recombination sites where every summand is ALREADY canonical
+(produced by a prior `canon`), re-running `canon` re-pays BP on terms that cannot
+change. `tensor_algebra.combine_canonical(expr)` is "canon minus BP": `.expand()`
+(distribute) + `TensAdd.doit()` (collect like terms) + the gated `_simplify_d_coeffs`,
+with NO per-term `canon_bp` and NO metric/delta contraction. **SAFETY CONTRACT:** only
+valid where a static provenance audit proves every incoming term is canonical — a
+non-canonical term won't collect, so a supposed-zero fails its `==0` gate (a LOUD
+failure, not a silent wrong answer). Wired at the recombination sites (step 1/2/3/5,
+field-redef substitution, `remove_second_derivatives`, `superpotential_divergence`,
+the `CanonAccumulator` fold). Validated STRUCTURALLY (`combine == canon` as
+expressions, not `canon(combine−canon)==0`, which hides form differences). Net: a
+modest reliable win — combine is not the dominant cost (BP inside the builders is).
+
+**deep= settled (2026-06-21).** combine's `TensAdd.doit()` runs at `deep=_COMBINE_DEEP`
+(env `GRB_COMBINE_DEEP`, default **deep=False**). On post-BP terms the per-arg `.doit()`
+(re-contraction) is redundant; deep=False skips it. An earlier reading — "deep=False
+regressed Proca ~2.8x" — triggered a revert (35c07c8) but was a CONFOUND: that build
+also carried the CanonAccumulator fold rework AND it was a cross-node comparison. A
+controlled SAME-MACHINE A/B (pure gravity order 3, 3 alternating rounds) found
+deep=True 454.0s vs deep=False 452.4s — statistically identical (0.35%, within noise).
+deep=True and deep=False produce byte-identical output (verified including raw / mixed
+/ cross-dummy inputs; `tests/_deep_probe.py`). Default deep=False (less redundant work,
+matches `canon_bp`'s own deep=False); `GRB_COMBINE_DEEP=1` restores deep=True to
+re-confirm on Zeus. **LESSON (recurred several times):** Zeus walltime varies ~2-3x by
+node; judge a perf change only via a same-machine alternating A/B, never cross-node.
+
+### Builder-chunk parallelism — wired, pending Zeus end-to-end (branch `parallelize-canon`)
+
+Parallelize whole LINEAR builders over input chunks (NOT per-canon — that was shelved
+at a 1.27x Amdahl ceiling). F linear ⇒ `Σ_j F(chunk_j) == F(expr)`; fork + copy-on-write
+workers (input never pickled — inherited via `_PARALLEL_G`; only the small per-chunk
+result is pickled back), disjoint fresh-index ranges per worker (`set_index_counter` +
+`_PARALLEL_STRIDE`), `combine_canonical` merge (per-chunk results are canonical).
+- **`jet.parallel_apply_linear(F, expr, n_workers, chunk_size)`** — fork executor.
+  Zeus-de-risked: **4.22x @ K=8**, `== whole` at every K (K=1 = 0.84x quantifies fork
+  overhead). Fork = Linux/Zeus only; Windows falls back to `F(expr)`.
+- **`jet.apply_linear(F, expr)`** — dispatcher, DROP-IN for `apply_linear_chunked` (same
+  signature + return shape). Gated on `GRB_N_WORKERS` (default 1 ⇒ serial
+  `apply_linear_chunked`, fully INERT) and `GRB_PARALLEL_MIN` (default 128 terms);
+  chunk = ceil(len/K) (one per worker, the bench-validated shape). Wired at the 7
+  linear-builder sites in `bootstrap_loop.py` (Hilbert/Belinfante EM, Z, Δ, the 3 EL
+  recomputes).
+- Validated: complex_scalar passes serial AND with `GRB_N_WORKERS=4` (Windows
+  fallback); `tests/bench_parallel_builder.py` serial/parallel `== whole`.
+
+**PENDING (the arbiter):** same-node end-to-end serial-vs-parallel A/B on Zeus via
+`hpc_suite/submit_parallel_run.sh` — one PBS job runs both legs on ONE node (identical
+hardware, avoiding the cross-node confound above): `RUN=4 NMAX=4 K=8 bash
+hpc_suite/submit_parallel_run.sh`. Gives the real Amdahl-limited speedup.
+
 ## The 6-step bootstrap (paper §4, quick reference)
 
 For each order n = 0, 1, 2, ...:
