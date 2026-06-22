@@ -43,6 +43,14 @@ _PARALLEL_G = {}
 # (below it the fork overhead -- ~0.84x at K=1 in the bench -- isn't worth it).
 _N_WORKERS = int(_os.environ.get('GRB_N_WORKERS', '1'))
 _PARALLEL_MIN = int(_os.environ.get('GRB_PARALLEL_MIN', '128'))
+# DEBUG: run the fork path's logic IN-PROCESS (disjoint ranges + same merge, no
+# fork, no pickle). Lets the fork-only bug be reproduced on Windows and isolates
+# the merge/disjoint-range logic from the process boundary. Temporary.
+_PARALLEL_EMULATE = bool(_os.environ.get('GRB_PARALLEL_EMULATE'))
+# DEBUG: after a parallel merge, also compute F(whole) and report whether the
+# merged result matches it (and whether the no-BP combine would have). Confirms the
+# fix / dumps the residue on Zeus where the fork bug actually reproduces. Temporary.
+_PARALLEL_VERIFY = bool(_os.environ.get('GRB_PARALLEL_VERIFY'))
 
 # CanonAccumulator fold diagnostics (env-gated; see _fold/result). Reveals
 # whether folding is re-canon'ing a non-shrinking total (the regression mode).
@@ -343,27 +351,49 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
     input is not a big-enough TensAdd. The fork path is Linux/Zeus only; validate
     per builder that parallel == whole (see tests/bench_parallel_builder.py).
     """
-    if (not _FORK_OK or n_workers <= 1 or not isinstance(expr, TensAdd)
-            or len(expr.args) <= chunk_size):
+    if (n_workers <= 1 or not isinstance(expr, TensAdd)
+            or len(expr.args) <= chunk_size
+            or (not _FORK_OK and not _PARALLEL_EMULATE)):
         return F(expr)
     args = list(expr.args)
     base = get_index_counter() + 1
     specs = [(lo, min(lo + chunk_size, len(args)), base, w)
              for w, lo in enumerate(range(0, len(args), chunk_size))]
-    _PARALLEL_G['F'] = F
-    _PARALLEL_G['args'] = args
-    try:
-        ctx = _mp.get_context('fork')
-        with ctx.Pool(processes=n_workers) as pool:
-            results = pool.map(_parallel_chunk_worker, specs)
-    finally:
-        _PARALLEL_G.clear()
+    if _PARALLEL_EMULATE:
+        # DEBUG: identical to the fork path except run in-process. With the pickle
+        # round-trip it mirrors the Pool's result serialization (worker->parent);
+        # set GRB_PARALLEL_EMULATE=2 to ADD that pickle to isolate it.
+        import pickle as _pickle
+        do_pickle = _os.environ.get('GRB_PARALLEL_EMULATE') == '2'
+        results = []
+        for (lo, hi, b, w) in specs:
+            set_index_counter(b + w * _PARALLEL_STRIDE)
+            r = F(_sum_terms(args[lo:hi]))
+            if do_pickle:
+                r = _pickle.loads(_pickle.dumps(r))
+            results.append(r)
+    else:
+        _PARALLEL_G['F'] = F
+        _PARALLEL_G['args'] = args
+        try:
+            ctx = _mp.get_context('fork')
+            with ctx.Pool(processes=n_workers) as pool:
+                results = pool.map(_parallel_chunk_worker, specs)
+        finally:
+            _PARALLEL_G.clear()
     # Advance the parent counter past every worker's range so subsequent parent
     # allocations can't collide with indices baked into the gathered results.
     set_index_counter(base + len(specs) * _PARALLEL_STRIDE)
     # Merge (mirrors apply_linear_chunked's accumulation): reindex index-returning
-    # results onto a common free-index set, then combine (results are canonical --
-    # F canons its output -- so combine_canonical, not canon).
+    # results onto a common free-index set, then re-canonicalize the sum. We use
+    # FULL canon here, not combine_canonical: the per-chunk results come from
+    # separate worker processes, and combine (collect, no Butler-Portugal) only
+    # cancels terms already in byte-identical canonical form. That assumption holds
+    # in-process but evidently NOT across the fork boundary -- it left cross-chunk
+    # cancellations undone (the Z != 0 fork bug). canon re-runs BP on the merged
+    # (already-reduced) result, guaranteeing cancellation regardless of any
+    # cross-process form drift. canon subsumes combine, so this is a strict
+    # correctness upgrade; the parallelism win (per-chunk F in parallel) is kept.
     target_idx = None
     indexed = False
     terms = []
@@ -380,8 +410,31 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
                 terms.append(_reindex_free(rexpr, ridx, target_idx))
         elif r is not S.Zero and r != 0:
             terms.append(r)
-    merged = combine_canonical(_sum_terms(terms)) if terms else S.Zero
+    summed = _sum_terms(terms) if terms else S.Zero
+    merged = canon(summed) if (terms and isinstance(summed, TensExpr)) else summed
+    if _PARALLEL_VERIFY and terms:
+        _parallel_verify_merge(F, expr, summed, merged, target_idx)
     return (merged, target_idx) if indexed else merged
+
+
+def _parallel_verify_merge(F, expr, summed, merged, target_idx):
+    """DEBUG (GRB_PARALLEL_VERIFY): compare the parallel merge against F(whole) and
+    report whether canon (the fix) and combine (the old behaviour) each match it."""
+    whole = F(expr)
+    wexpr, widx = whole if isinstance(whole, tuple) else (whole, None)
+    if widx is not None and target_idx is not None:
+        wexpr = _reindex_free(wexpr, widx, target_idx)
+    canon_resid = canon(merged + (-1) * wexpr)
+    combine_merged = combine_canonical(summed)
+    combine_resid = canon(combine_merged + (-1) * wexpr)
+    def _n(e):
+        return 0 if (e is S.Zero or e == 0) else (len(e.args) if isinstance(e, TensAdd) else 1)
+    print(f"[parallel VERIFY] canon-merge vs whole: {_n(canon_resid)} residual | "
+          f"combine-merge vs whole: {_n(combine_resid)} residual "
+          f"(combine_merged {_n(combine_merged)} terms, whole {_n(wexpr)} terms)", flush=True)
+    if _n(canon_resid):
+        sample = list(canon_resid.args)[:5] if isinstance(canon_resid, TensAdd) else [canon_resid]
+        print(f"    canon-merge STILL WRONG, sample residue: {sample}", flush=True)
 
 
 def apply_linear(F, expr, chunk_size=64, fold_every=128):
