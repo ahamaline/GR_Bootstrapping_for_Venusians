@@ -520,7 +520,8 @@ Parallelize whole LINEAR builders over input chunks (NOT per-canon — that was 
 at a 1.27x Amdahl ceiling). F linear ⇒ `Σ_j F(chunk_j) == F(expr)`; fork + copy-on-write
 workers (input never pickled — inherited via `_PARALLEL_G`; only the small per-chunk
 result is pickled back), disjoint fresh-index ranges per worker (`set_index_counter` +
-`_PARALLEL_STRIDE`), `combine_canonical` merge (per-chunk results are canonical).
+`_PARALLEL_STRIDE`), **full `canon` merge** (see the correctness note below — combine
+was NOT safe here).
 - **`jet.parallel_apply_linear(F, expr, n_workers, chunk_size)`** — fork executor.
   Zeus-de-risked: **4.22x @ K=8**, `== whole` at every K (K=1 = 0.84x quantifies fork
   overhead). Fork = Linux/Zeus only; Windows falls back to `F(expr)`.
@@ -532,6 +533,25 @@ result is pickled back), disjoint fresh-index ranges per worker (`set_index_coun
   recomputes).
 - Validated: complex_scalar passes serial AND with `GRB_N_WORKERS=4` (Windows
   fallback); `tests/bench_parallel_builder.py` serial/parallel `== whole`.
+
+**CORRECTNESS BUG FOUND + FIXED (2026-06-22).** The first real fork runs produced
+`Z != 0` where it must be 0 (pure gravity n5 K8 failed at order 3; proca n4 at order
+2; serial leg passed every order). Cause: the merge used `combine_canonical` (collect,
+no Butler-Portugal), which only cancels terms already in byte-identical canonical
+form. That holds in one process but NOT across the fork boundary, so cross-chunk pieces
+that should cancel to Z=0 were left as a 196/256-term residue → `decompose_against_eoms`
+raised. Fix (commit e7c184a): the merge now runs **full `canon` (BP)** over the merged
+(already-reduced) result — BP renormalizes every term so cancellations are guaranteed
+regardless of cross-process form drift. `canon` subsumes `combine`, so it is a strict
+correctness upgrade and the per-chunk parallelism (the actual speedup) is kept; only
+the final merge pays one BP pass. NOTE the bug was NOT reproducible off-Zeus (in-process
+emulation `GRB_PARALLEL_EMULATE` with disjoint ranges + pickle, and a true
+cross-process disk-pickle, both cancel correctly) — it needs the real fork. Confirmed
+fixed on Zeus via `GRB_PARALLEL_VERIFY` (`hpc_suite/submit_parallel_verify.sh`):
+canon-merge matches `F(whole)` (0 residual) while the old combine-merge had residue.
+Gap that let it through: `bench_parallel_builder.py` only tested a BARE builder
+(`total_derivative`) with no cross-chunk cancellation; an index-returning builder with
+real cancellation (e.g. `compute_h2_violation`, Z→0) on a fork node would have caught it.
 
 **PENDING (the arbiter):** same-node end-to-end serial-vs-parallel A/B on Zeus via
 `hpc_suite/submit_parallel_run.sh` — one PBS job runs both legs on ONE node (identical
