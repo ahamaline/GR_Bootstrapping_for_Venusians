@@ -407,7 +407,11 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
                 target_idx = ridx
                 terms.append(rexpr)
             else:
-                terms.append(_reindex_free(rexpr, ridx, target_idx))
+                # Relabel free indices WITHOUT canon: the single merge canon below
+                # re-canonicalizes the whole sum anyway, so per-term canon here is
+                # redundant (non-first chunks were being canon'd 3x: worker F,
+                # reindex, merge). substitute_indices is enough; merge canon does BP.
+                terms.append(_substitute_free(rexpr, ridx, target_idx))
         elif r is not S.Zero and r != 0:
             terms.append(r)
     summed = _sum_terms(terms) if terms else S.Zero
@@ -460,6 +464,19 @@ def apply_linear(F, expr, chunk_size=64, fold_every=128):
         return parallel_apply_linear(F, expr, _N_WORKERS, chunk_size=chunk)
     return apply_linear_chunked(F, expr, chunk_size=chunk_size,
                                 fold_every=fold_every)
+
+
+def _substitute_free(expr, old_indices, new_indices):
+    """Relabel free indices old->new (both signs) WITHOUT canon. Used by the
+    parallel merge, which canons the full summed result once afterward, so a
+    per-term canon here would be redundant. substitute_indices alone is enough."""
+    if expr is S.Zero or expr == 0 or not hasattr(expr, 'substitute_indices'):
+        return expr
+    pairs = []
+    for o, nw in zip(old_indices, new_indices):
+        pairs.append((o, nw))
+        pairs.append((-o, -nw))
+    return expr.substitute_indices(*pairs)
 
 
 def _reindex_free(expr, old_indices, new_indices):
