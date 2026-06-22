@@ -553,6 +553,30 @@ Gap that let it through: `bench_parallel_builder.py` only tested a BARE builder
 (`total_derivative`) with no cross-chunk cancellation; an index-returning builder with
 real cancellation (e.g. `compute_h2_violation`, Z→0) on a fork node would have caught it.
 
+**FIRST CLEAN SPEEDUP (2026-06-22).** Same-node serial-vs-parallel A/B (pure gravity,
+node n091): per-order speedup **1.92× (o2) → 1.74× (o3) → 2.05× (o4)**, Z=0 in both
+legs (correctness holds in the full A/B). This is the Amdahl-limited *whole-order*
+number (only the linear builders parallelize), and it grows with order. Caveats: the
+node exposed only 4 cores while K=8 (2:1 oversubscription, capping near 4×), and the 4 h
+walltime killed the parallel leg at o5. So ~2×-and-climbing on a handicapped run.
+
+**Coverage extensions (2026-06-22), to raise the Amdahl ceiling:**
+- **Field-redef substitution parallelized** (commit 49a4606): `_substitute_field` is
+  linear over its input Lagrangian's terms, so `_apply_one_field_redef` now wraps the
+  per-k substitution in `apply_linear`. This is the historically dominant SERIAL cost on
+  matter (redef) runs, so it moves into the parallel fraction there (pure gravity has no
+  redefs → unaffected). Bare builder → the lower-risk no-reindex path. Validated off-Zeus:
+  chunked == whole (emulation + pickle, `tests/_subst_parallel.py`) AND the full
+  EM-Belinfante redef cycle closes at every order under emulated parallel.
+- **Merge cost reduced** (commit 8d1809c): the merge canons the full sum once, so the
+  per-term canon inside `_reindex_free` was redundant (non-first chunks were canon'd 3×:
+  worker, reindex, merge). New `_substitute_free` relabels free indices without canon;
+  the single merge canon does the BP. Provably form-preserving → shrinks the serial merge
+  overhead for every index-returning builder, no correctness change.
+- NOT pursued: a *cheaper-than-canon* merge. The full canon is the proven cross-process
+  fix; combine failed there for a mechanism not reproducible off-Zeus, so a cheaper merge
+  can't be validated locally and would risk re-introducing the Z≠0 bug.
+
 **PENDING (the arbiter):** same-node end-to-end serial-vs-parallel A/B on Zeus via
 `hpc_suite/submit_parallel_run.sh` — one PBS job runs both legs on ONE node (identical
 hardware, avoiding the cross-node confound above): `RUN=4 NMAX=4 K=8 bash
