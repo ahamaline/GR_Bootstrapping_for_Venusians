@@ -1857,11 +1857,16 @@ class BootstrapState(TracelessRecoveryMixin):
         substituted = {}
         for k in range(0, k_max_sub + 1):
             L_k = self.L_ref.get(k, S.Zero)
-            L_k = _substitute_field(
-                L_k, field_info, f_expr, f_indices,
-                target_order=self.n_max + 1,
-                deriv_cache=deriv_cache,
-            )
+            # _substitute_field is linear over L_k's terms (each term is expanded
+            # and accumulated independently), so parallelize it over chunks -- this
+            # is the historically dominant serial cost on matter (redef) runs, so
+            # moving it into the parallel fraction raises the Amdahl ceiling there.
+            # Bare builder (scalar L, no free indices): no reindex, just merge+canon.
+            L_k = apply_linear(
+                lambda chunk: _substitute_field(
+                    chunk, field_info, f_expr, f_indices,
+                    target_order=self.n_max + 1, deriv_cache=deriv_cache),
+                L_k, chunk_size=_LINEAR_CHUNK)
             substituted[k] = L_k
 
         label = field_info.get('name', '?')
