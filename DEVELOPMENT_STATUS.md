@@ -577,6 +577,14 @@ walltime killed the parallel leg at o5. So ~2×-and-climbing on a handicapped ru
   fix; combine failed there for a mechanism not reproducible off-Zeus, so a cheaper merge
   can't be validated locally and would risk re-introducing the Z≠0 bug.
 
+**FORK-CONFIRMED (2026-06-23, node n088, K=4)** via `tests/bench_parallel_correctness.py`
+(`hpc_suite/submit_parallel_correctness.sh`) — closes the test gap that let the Z≠0 bug
+through (the old bench only covered a bare builder with no cross-chunk cancellation):
+`parallel == whole` on real fork for **`compute_h2_violation`** (index-returning, the
+exact bug builder; 1137→411 s, **2.77×**, 894==894 terms) AND **field-redef
+`_substitute_field`** (41.5→19.4 s, **2.14×**). The merge fix, the substitute-only
+reindex, and the field-redef parallelization are all confirmed correct on fork.
+
 **PENDING (the arbiter):** same-node end-to-end serial-vs-parallel A/B on Zeus via
 `hpc_suite/submit_parallel_run.sh` — one PBS job runs both legs on ONE node (identical
 hardware, avoiding the cross-node confound above): `RUN=4 NMAX=4 K=8 bash
