@@ -30,6 +30,9 @@ QUEUE="${QUEUE:-zeus_long_q}"
 WALLTIME="${WALLTIME:-72:00:00}"
 MEM="${MEM:-360gb}"
 SUFFIX="${SUFFIX:-_par}"
+EXCL="${EXCL:-}"             # set EXCL=1 to reserve the whole node (no other tenants)
+excl_line=""
+[ -n "$EXCL" ] && excl_line="#PBS -l place=excl"
 
 # run number -> script base name (matches submit_all.sh / runs/).
 RUNS=(
@@ -55,6 +58,7 @@ cat > "$pbs" <<EOF
 #PBS -q ${QUEUE}
 #PBS -l select=1:ncpus=${NCPUS}:mem=${MEM}
 #PBS -l walltime=${WALLTIME}
+${excl_line}
 #PBS -j oe
 #PBS -o logs/${tag}.pbslog
 cd \$PBS_O_WORKDIR
