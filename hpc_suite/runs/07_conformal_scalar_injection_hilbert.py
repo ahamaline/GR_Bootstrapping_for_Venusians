@@ -7,7 +7,7 @@ The rigorous high-order test of BOTH traceless-T_M recoveries together:
 plus the rollback+augment of the order-(n-1) redef and the carryover of the
 recovered X. Symbolic d (not d=4) so closure cannot be a numeric coincidence.
 
-L_M = -1/2 dphi.dphi  with the conformal coupling xi(d) phi^2 R, xi=(d-2)/(4(d-1)).
+L_M = -1/2 dphi.dphi  with the conformal coupling -xi(d)/2 phi^2 R, xi=(d-2)/(4(d-1)).
 A traceless-shape optional EOM is injected at order 1 (dual: h and phi).
 
 Usage:  python -u 07_conformal_scalar_injection_hilbert.py [n_max]   (default 5)
