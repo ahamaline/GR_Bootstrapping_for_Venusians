@@ -44,6 +44,27 @@ covariant expansion (Christoffels, the Ricci/curvature combinations, the matter
 covariantization) also simplify in the exponential frame, is not settled here — it would
 take a per-contribution term-count comparison to attribute it properly.
 
+## Matter too: it's the exponential VIELBEIN frame
+
+The metric result is the rank-2 case of a single statement. The vielbein
+`E = (g^{\mu}{}_{\nu})^{1/2} = e^{\kappa H}` (the *symmetric*-gauge vierbein, `g = E^{\mathsf T}\eta E`,
+self-adjoint w.r.t. `\eta`) is the matrix square root of the mixed-index metric, so
+`H = (1/\kappa)\log E`. The Belinfante bootstrap reconstructs GR **in this exponential
+vielbein frame**, and every field is redefined to its **local-frame component** — one
+vielbein per covariant index (inverse for an upper index):
+
+| field | index | redefinition `f_*` composes to | run |
+|---|---|---|---|
+| scalar `φ` | none | `e⁰` → no redef | 11 |
+| `A_μ` | one lower | `A_orig = e^{+κH}A = √g·A` | 6 |
+| `V^μ` | one upper | `V_orig = e^{-κH}V = (1/√g)·V` | 13 |
+| `g_{μν}` | two lower | `g = e^{2κH}` | 11 |
+
+The covariant `A_μ` and contravariant `V^μ` redefs are exact inverses
+(`e^{+κH}` vs `e^{-κH}`), confirming the redefined fields are frame components
+`A_a = e_a{}^μ A_μ`, `V^a = e^a{}_μ V^μ`. `compose_A_scalar.py` / `compose_V_scalar.py`
+verify the `e^{±κH}` series from the run-6 / run-13 `f_A`/`f_V` redefs.
+
 ## Where the input comes from
 
 `f_h_redefs.txt` — the graviton field redefinitions `f_h^(n)`, **recovered automatically**
