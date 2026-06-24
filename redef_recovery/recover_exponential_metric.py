@@ -48,7 +48,7 @@ from bootstrap.covariant import kappa
 
 DATA = sys.argv[1] if len(sys.argv) > 1 else \
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "f_h_redefs.txt")
-NMAX = 9
+NMAX = 10
 _IDX = re.compile(r'_i\d+|L_\d+')
 
 MU, NU = fresh_indices(2)   # global rank-2 free indices (down-down: -MU,-NU)

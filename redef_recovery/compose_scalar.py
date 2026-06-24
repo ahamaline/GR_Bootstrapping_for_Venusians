@@ -15,8 +15,9 @@ from sympy import symbols, Rational, expand, Poly, S, factorial
 
 y, G = symbols('y G')          # y: eigenvalue of redefined H; G: eigenvalue of g^mu_nu
 c = {2: S(1), 3: Rational(2, 3), 4: S(-1), 5: Rational(32, 15), 6: Rational(-8, 3),
-     7: Rational(404, 63), 8: Rational(-34, 3), 9: Rational(14336, 405)}
-DEG = 9
+     7: Rational(404, 63), 8: Rational(-34, 3), 9: Rational(14336, 405),
+     10: Rational(-6418, 135)}
+DEG = 10
 
 
 def trunc(e):

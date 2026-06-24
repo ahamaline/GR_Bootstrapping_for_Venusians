@@ -52,12 +52,12 @@ by the bootstrap at each order while closing run 11 (massive scalar, Belinfante,
 Each is a single, trace-free **matrix power of h**:
 
 ```
-f_h^(n)_{μν} = c_n · κ^(n-1) · (h^n)_{μν},   c = {1, 2/3, -1, 32/15, -8/3, 404/63, -34/3, 14336/405}   (n=2..9)
+f_h^(n)_{μν} = c_n · κ^(n-1) · (h^n)_{μν},   c = {1, 2/3, -1, 32/15, -8/3, 404/63, -34/3, 14336/405, -6418/135}   (n=2..10)
 ```
 
 The individual `c_n` have no obvious pattern — yet they compose to *exactly* the
 exponential. The bootstrap had no notion of "exp"; it produced eight messy rationals
-that conspire to `e^{2κH}` through nine orders. That is the evidence the result is a
+that conspire to `e^{2κH}` through ten orders. That is the evidence the result is a
 genuine structural fact.
 
 ## Files
@@ -71,7 +71,7 @@ genuine structural fact.
 ## Reproduce
 
 ```bash
-python -u recover_exponential_metric.py     # rigorous tensor-level proof (CONFIRMED orders 1..9)
+python -u recover_exponential_metric.py     # rigorous tensor-level proof (CONFIRMED orders 1..10)
 python -u compose_scalar.py                 # fast scalar version (shows the 1/k! coefficients)
 ```
 
