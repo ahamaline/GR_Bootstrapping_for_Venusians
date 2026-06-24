@@ -48,6 +48,7 @@ RUNS=(
   "10_traceless_kitchen_sink_injection_hilbert"
   "11_scalar_mass_potential_belinfante"
   "12_kitchen_sink_matter_optional_eom_hilbert"
+  "13_proca_mass_belinfante"
 )
 name="${RUNS[$((RUN - 1))]}"
 [ -n "${name:-}" ] || { echo "bad RUN=$RUN"; exit 1; }
