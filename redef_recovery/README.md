@@ -22,9 +22,10 @@ bootstrapped Einstein field equation is ~2–2.5× **more compact** in the expon
 (see runs 2 vs 11). The exponential parametrization is a known device in background-field
 / asymptotic-safety gravity; here it falls out of the bootstrap on its own.
 
-## Why it compactifies the EFE: √|g|
+## One obvious mechanism for the compaction (not necessarily the whole story): √|g|
 
-A concrete mechanism. Using $\det(e^{M})=e^{\operatorname{Tr}M}$ on $g^{\mu}{}_{\nu}=e^{2\kappa H}$,
+At least one identifiable contributor — we make no claim it accounts for the full
+~2–2.5× effect. Using $\det(e^{M})=e^{\operatorname{Tr}M}$ on $g^{\mu}{}_{\nu}=e^{2\kappa H}$,
 
 $$\sqrt{|g|} = e^{\,\kappa\,\operatorname{Tr}H} = e^{\,\kappa\,H^{\mu}{}_{\mu}},$$
 
@@ -34,9 +35,14 @@ expansion — at order $n$, a sum over all the contraction patterns the determin
 produces. Since $\sqrt{|g|}$ is the covariant Lagrangian measure, and its variation
 $\delta\sqrt{|g|}=\tfrac12\sqrt{|g|}\,g^{\mu\nu}\delta g_{\mu\nu}$ is exactly the trace
 term in the Hilbert stress tensor that multiplies the *whole* Lagrangian, collapsing it
-to a single $e^{\kappa\operatorname{Tr}H}$ removes a major source of term proliferation.
-(The inverse metric is *not* the differentiator — it is one matrix-power per order in
-both frames: $(\eta+2\kappa h)^{-1}=\sum(-2\kappa h)^k$ vs $e^{-2\kappa H}=\sum(-2\kappa H)^k/k!$.)
+to a single $e^{\kappa\operatorname{Tr}H}$ removes one clear source of term proliferation.
+(The inverse metric, by contrast, is *not* a differentiator — it is one matrix-power per
+order in both frames: $(\eta+2\kappa h)^{-1}=\sum(-2\kappa h)^k$ vs $e^{-2\kappa H}=\sum(-2\kappa H)^k/k!$.)
+
+Whether $\sqrt{|g|}$ alone explains the measured compaction, or other structures in the
+covariant expansion (Christoffels, the Ricci/curvature combinations, the matter
+covariantization) also simplify in the exponential frame, is not settled here — it would
+take a per-contribution term-count comparison to attribute it properly.
 
 ## Where the input comes from
 
