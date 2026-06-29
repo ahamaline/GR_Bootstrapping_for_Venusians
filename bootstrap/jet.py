@@ -43,6 +43,13 @@ _PARALLEL_G = {}
 # (below it the fork overhead -- ~0.84x at K=1 in the bench -- isn't worth it).
 _N_WORKERS = int(_os.environ.get('GRB_N_WORKERS', '1'))
 _PARALLEL_MIN = int(_os.environ.get('GRB_PARALLEL_MIN', '128'))
+# Cap the per-worker chunk size in the parallel path. Default huge (= no cap =
+# one chunk per worker, ceil(len/K)). Set GRB_PARALLEL_CHUNK_CAP to a small value
+# (e.g. 256) for memory-bound steps: the input is then processed in many small
+# waves by the K workers (each worker's live inflation is ~one capped chunk, not
+# len/K), and the parallel merge switches to the streaming fold automatically.
+# Trades extra fork/pickle round-trips + a serial fold for bounded peak RAM.
+_PARALLEL_CHUNK_CAP = int(_os.environ.get('GRB_PARALLEL_CHUNK_CAP', str(10 ** 9)))
 # DEBUG: run the fork path's logic IN-PROCESS (disjoint ranges + same merge, no
 # fork, no pickle). Lets the fork-only bug be reproduced on Windows and isolates
 # the merge/disjoint-range logic from the process boundary. Temporary.
@@ -182,10 +189,17 @@ class CanonAccumulator:
     """
 
     __slots__ = ('fold_every', '_buf', '_total', '_nfolds', '_nadded',
-                 '_maxtotal', '_foldsecs', '_check_at', '_inputs_canonical')
+                 '_maxtotal', '_foldsecs', '_check_at', '_inputs_canonical',
+                 '_force_fold')
 
-    def __init__(self, fold_every=50, inputs_canonical=False):
+    def __init__(self, fold_every=50, inputs_canonical=False, force_fold=False):
         self.fold_every = fold_every
+        # force_fold: fold every fold_every additions REGARDLESS of memory
+        # pressure. Used by the parallel streaming merge, which is only entered
+        # when bounded RAM is already the goal, and wants the running total kept
+        # small (cross-chunk terms combined ASAP) independent of the per-process
+        # budget (which doesn't see the concurrent workers' memory).
+        self._force_fold = force_fold
         # inputs_canonical: caller guarantees every added term is ALREADY in
         # canonical form (e.g. apply_linear_chunked adds F(chunk) where F canons
         # its own output). Then the fold needs NO Butler-Portugal at all -- it
@@ -216,7 +230,7 @@ class CanonAccumulator:
         # and canon once at result() (folding is per-term-BP overhead, see the
         # module gate). Re-check pressure every fold_every more terms.
         if len(self._buf) >= self._check_at:
-            if _mem_pressure():
+            if self._force_fold or _mem_pressure():
                 self._fold()
                 self._check_at = self.fold_every
             else:
@@ -333,8 +347,21 @@ def _parallel_chunk_worker(spec):
     return _PARALLEL_G['F'](_sum_terms(sub))
 
 
-def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
+def parallel_apply_linear(F, expr, n_workers, chunk_size=64, streaming=False,
+                          fold_every=128):
     """Fork-parallel counterpart of apply_linear_chunked for a LINEAR builder F.
+
+    Merge modes:
+      * streaming=False (fast): one chunk per worker (caller sets chunk_size =
+        ceil(len/K)); pool.map gathers all results, then ONE canon over their sum
+        (_legacy_merge). Peak RAM = the whole un-canon'd result + K worker
+        inflations.
+      * streaming=True (memory-bounded): caller passes a SMALL chunk_size, so many
+        chunks run in waves (each worker's live inflation ~ one small chunk).
+        Results stream back via imap_unordered and are folded into a running
+        canonical total as they arrive (_stream_merge), so cross-chunk terms
+        combine/cancel immediately instead of piling up. Bounds both worker peak
+        (small chunks) and parent peak (running fold). apply_linear gates this.
 
     Splits expr's terms into chunks, runs F(chunk) in one forked worker per chunk
     (fork + copy-on-write, so the input is NEVER pickled -- workers read F+args
@@ -360,40 +387,55 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
     specs = [(lo, min(lo + chunk_size, len(args)), base, w)
              for w, lo in enumerate(range(0, len(args), chunk_size))]
     if _PARALLEL_EMULATE:
-        # DEBUG: identical to the fork path except run in-process. With the pickle
-        # round-trip it mirrors the Pool's result serialization (worker->parent);
-        # set GRB_PARALLEL_EMULATE=2 to ADD that pickle to isolate it.
+        # DEBUG: run the fork path's logic IN-PROCESS (disjoint ranges, optional
+        # pickle round-trip) so the merge can be validated where fork is absent.
+        # GRB_PARALLEL_EMULATE=2 adds the worker->parent pickle to isolate it.
         import pickle as _pickle
         do_pickle = _os.environ.get('GRB_PARALLEL_EMULATE') == '2'
-        results = []
-        for (lo, hi, b, w) in specs:
-            set_index_counter(b + w * _PARALLEL_STRIDE)
-            r = F(_sum_terms(args[lo:hi]))
-            if do_pickle:
-                r = _pickle.loads(_pickle.dumps(r))
-            results.append(r)
-    else:
-        _PARALLEL_G['F'] = F
-        _PARALLEL_G['args'] = args
-        try:
-            ctx = _mp.get_context('fork')
-            with ctx.Pool(processes=n_workers) as pool:
-                results = pool.map(_parallel_chunk_worker, specs)
-        finally:
-            _PARALLEL_G.clear()
+
+        def _emulate_iter():
+            for (lo, hi, b, w) in specs:
+                set_index_counter(b + w * _PARALLEL_STRIDE)
+                r = F(_sum_terms(args[lo:hi]))
+                if do_pickle:
+                    r = _pickle.loads(_pickle.dumps(r))
+                yield r
+
+        if streaming:
+            set_index_counter(base + len(specs) * _PARALLEL_STRIDE)
+            return _stream_merge(_emulate_iter(), fold_every, F, expr)
+        results = list(_emulate_iter())
+        set_index_counter(base + len(specs) * _PARALLEL_STRIDE)
+        return _legacy_merge(results, F, expr)
+
+    _PARALLEL_G['F'] = F
+    _PARALLEL_G['args'] = args
+    try:
+        ctx = _mp.get_context('fork')
+        with ctx.Pool(processes=n_workers) as pool:
+            if streaming:
+                # Advance the parent counter past every worker range BEFORE the
+                # streaming fold (its canon allocates dummies in the parent).
+                set_index_counter(base + len(specs) * _PARALLEL_STRIDE)
+                return _stream_merge(
+                    pool.imap_unordered(_parallel_chunk_worker, specs),
+                    fold_every, F, expr)
+            results = pool.map(_parallel_chunk_worker, specs)
+    finally:
+        _PARALLEL_G.clear()
     # Advance the parent counter past every worker's range so subsequent parent
     # allocations can't collide with indices baked into the gathered results.
     set_index_counter(base + len(specs) * _PARALLEL_STRIDE)
-    # Merge (mirrors apply_linear_chunked's accumulation): reindex index-returning
-    # results onto a common free-index set, then re-canonicalize the sum. We use
-    # FULL canon here, not combine_canonical: the per-chunk results come from
-    # separate worker processes, and combine (collect, no Butler-Portugal) only
-    # cancels terms already in byte-identical canonical form. That assumption holds
-    # in-process but evidently NOT across the fork boundary -- it left cross-chunk
-    # cancellations undone (the Z != 0 fork bug). canon re-runs BP on the merged
-    # (already-reduced) result, guaranteeing cancellation regardless of any
-    # cross-process form drift. canon subsumes combine, so this is a strict
-    # correctness upgrade; the parallelism win (per-chunk F in parallel) is kept.
+    return _legacy_merge(results, F, expr)
+
+
+def _legacy_merge(results, F, expr):
+    """Gather-then-canon merge (fast path): reindex each chunk result onto a common
+    free-index set, sum, and re-canon ONCE. Full canon (Butler-Portugal), not
+    combine_canonical -- across the fork boundary combine fails to cancel
+    cross-chunk terms (each worker canon'd in its own process/index range, so equal
+    terms aren't byte-identical until re-canon'd here): the Z != 0 fork bug. Peak
+    RAM holds the whole un-canon'd result at once."""
     target_idx = None
     indexed = False
     terms = []
@@ -407,10 +449,6 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
                 target_idx = ridx
                 terms.append(rexpr)
             else:
-                # Relabel free indices WITHOUT canon: the single merge canon below
-                # re-canonicalizes the whole sum anyway, so per-term canon here is
-                # redundant (non-first chunks were being canon'd 3x: worker F,
-                # reindex, merge). substitute_indices is enough; merge canon does BP.
                 terms.append(_substitute_free(rexpr, ridx, target_idx))
         elif r is not S.Zero and r != 0:
             terms.append(r)
@@ -418,6 +456,42 @@ def parallel_apply_linear(F, expr, n_workers, chunk_size=64):
     merged = canon(summed) if (terms and isinstance(summed, TensExpr)) else summed
     if _PARALLEL_VERIFY and terms:
         _parallel_verify_merge(F, expr, summed, merged, target_idx)
+    return (merged, target_idx) if indexed else merged
+
+
+def _stream_merge(results_iter, fold_every, F, expr):
+    """Memory-bounded merge: fold each chunk result into a running canonical total
+    as it streams back (imap_unordered), so cross-chunk terms combine/cancel
+    immediately instead of every result piling up in the parent. The accumulator
+    (inputs_canonical=False) re-canons each batch IN THIS process -> byte-identical
+    canonical forms -> combine cancels correctly across the fork boundary (combine
+    alone would not -- the Z != 0 bug). force_fold so it folds regardless of the
+    per-process budget (entered only when bounded RAM is already wanted).
+    Order-independent: the sum is commutative and canon idempotent, so the result
+    does not depend on imap_unordered's completion order."""
+    acc = CanonAccumulator(fold_every=fold_every, inputs_canonical=False,
+                           force_fold=True)
+    target_idx = None
+    indexed = False
+    any_term = False
+    for r in results_iter:
+        if isinstance(r, tuple):
+            indexed = True
+            rexpr, ridx = r
+            if rexpr is S.Zero or rexpr == 0:
+                continue
+            any_term = True
+            if target_idx is None:
+                target_idx = ridx
+                acc.add(rexpr)
+            else:
+                acc.add(_substitute_free(rexpr, ridx, target_idx))
+        elif r is not S.Zero and r != 0:
+            any_term = True
+            acc.add(r)
+    merged = acc.result()
+    if _PARALLEL_VERIFY and any_term:
+        _parallel_verify_merge(F, expr, None, merged, target_idx)
     return (merged, target_idx) if indexed else merged
 
 
@@ -429,10 +503,21 @@ def _parallel_verify_merge(F, expr, summed, merged, target_idx):
     if widx is not None and target_idx is not None:
         wexpr = _reindex_free(wexpr, widx, target_idx)
     canon_resid = canon(merged + (-1) * wexpr)
-    combine_merged = combine_canonical(summed)
-    combine_resid = canon(combine_merged + (-1) * wexpr)
+
     def _n(e):
         return 0 if (e is S.Zero or e == 0) else (len(e.args) if isinstance(e, TensAdd) else 1)
+
+    if summed is None:
+        # Streaming fold: there is no single pre-canon sum to combine-test, so just
+        # check the folded result against F(whole).
+        print(f"[parallel VERIFY] stream-merge vs whole: {_n(canon_resid)} residual "
+              f"(merged {_n(merged)} terms, whole {_n(wexpr)} terms)", flush=True)
+        if _n(canon_resid):
+            sample = list(canon_resid.args)[:5] if isinstance(canon_resid, TensAdd) else [canon_resid]
+            print(f"    stream-merge STILL WRONG, sample residue: {sample}", flush=True)
+        return
+    combine_merged = combine_canonical(summed)
+    combine_resid = canon(combine_merged + (-1) * wexpr)
     print(f"[parallel VERIFY] canon-merge vs whole: {_n(canon_resid)} residual | "
           f"combine-merge vs whole: {_n(combine_resid)} residual "
           f"(combine_merged {_n(combine_merged)} terms, whole {_n(wexpr)} terms)", flush=True)
@@ -449,9 +534,14 @@ def apply_linear(F, expr, chunk_size=64, fold_every=128):
       unless under memory pressure. Fully inert: swapping call sites to apply_linear
       changes NOTHING until GRB_N_WORKERS is set.
     * GRB_N_WORKERS=K>1 on a fork platform, input a TensAdd with >= GRB_PARALLEL_MIN
-      terms: fork-parallel over ~K chunks (chunk = ceil(len/K), one per worker --
-      the shape validated in tests/bench_parallel_builder.py). Falls back to serial
-      otherwise (no fork / small input / not a TensAdd).
+      terms: fork-parallel. Two sub-modes:
+        - fast (default): one chunk per worker (chunk = ceil(len/K)), gather + one
+          canon. Lowest overhead; peak RAM = whole result + K worker inflations.
+        - memory-bounded: when GRB_PARALLEL_CHUNK_CAP caps the chunk below
+          ceil(len/K), or RSS is already over the memory budget -- many small
+          chunks processed in waves + a streaming fold on the master (combine each
+          chunk into the running total as it returns). Bounds worker AND parent
+          peak; see parallel_apply_linear. Falls back to serial otherwise.
 
     Linear means F(A+B)==F(A)+F(B), F(0)==0; only such builders may use this. Both
     backends return (expr, free_indices) for index-returning F and a bare expr
@@ -460,8 +550,18 @@ def apply_linear(F, expr, chunk_size=64, fold_every=128):
     if (_N_WORKERS > 1 and _FORK_OK and isinstance(expr, TensAdd)
             and len(expr.args) >= _PARALLEL_MIN):
         import math
-        chunk = max(1, math.ceil(len(expr.args) / _N_WORKERS))
-        return parallel_apply_linear(F, expr, _N_WORKERS, chunk_size=chunk)
+        chunk_full = max(1, math.ceil(len(expr.args) / _N_WORKERS))
+        # Memory-bounded mode if an explicit cap is set below one-per-worker, or
+        # RSS is already over budget. Then use small chunks (the cap if set, else
+        # the serial chunk_size) and the streaming fold; otherwise one big chunk
+        # per worker with the fast gather+canon merge (unchanged default).
+        if _PARALLEL_CHUNK_CAP < chunk_full or _mem_pressure():
+            cap = _PARALLEL_CHUNK_CAP if _PARALLEL_CHUNK_CAP < chunk_full else chunk_size
+            chunk = max(1, min(chunk_full, cap))
+            return parallel_apply_linear(F, expr, _N_WORKERS, chunk_size=chunk,
+                                         streaming=True, fold_every=fold_every)
+        return parallel_apply_linear(F, expr, _N_WORKERS, chunk_size=chunk_full,
+                                     streaming=False, fold_every=fold_every)
     return apply_linear_chunked(F, expr, chunk_size=chunk_size,
                                 fold_every=fold_every)
 

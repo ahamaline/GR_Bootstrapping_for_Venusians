@@ -23,6 +23,10 @@ RUN="${RUN:-1}"
 NMAX="${NMAX:-2}"
 K="${K:-4}"
 MIN="${MIN:-16}"          # GRB_PARALLEL_MIN: low so the parallel path triggers early
+CHUNKCAP="${CHUNKCAP:-}"  # set e.g. CHUNKCAP=8 to force the streaming/chunk-cap path:
+                          # the verify then prints "stream-merge vs whole: 0 residual"
+cap_env=""
+[ -n "$CHUNKCAP" ] && cap_env="GRB_PARALLEL_CHUNK_CAP=${CHUNKCAP}"
 NCPUS="${NCPUS:-$K}"
 QUEUE="${QUEUE:-zeus_new_q}"
 WALLTIME="${WALLTIME:-04:00:00}"
@@ -61,7 +65,7 @@ source env_setup.sh
 export PYTHONHASHSEED=0
 {
   echo "[verify] node \$(hostname)  RUN=${name}  NMAX=${NMAX}  K=${K}  MIN=${MIN}"
-  GRB_N_WORKERS=${K} GRB_PARALLEL_MIN=${MIN} GRB_PARALLEL_VERIFY=1 \
+  GRB_N_WORKERS=${K} ${cap_env} GRB_PARALLEL_MIN=${MIN} GRB_PARALLEL_VERIFY=1 \
     python -u runs/${name}.py ${NMAX}
 } > logs/${tag}.log 2>&1
 EOF

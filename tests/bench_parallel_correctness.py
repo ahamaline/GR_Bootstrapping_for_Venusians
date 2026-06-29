@@ -54,6 +54,14 @@ if __name__ == '__main__':
     ok_h2 = eq_indexed(Zw, zw, Zp, zp)
     print(f"[H2]    E={nE} terms  whole {tw:6.1f}s -> {n(Zw):4d}  "
           f"parallel {tp:6.1f}s -> {n(Zp):4d}  == whole: {ok_h2}", flush=True)
+    # streaming fold (memory-bounded path): small chunks -> many waves merged into
+    # a running canonical total. Same cross-chunk cancellation as the Z!=0 case.
+    cs = max(1, chunk // 4)
+    t = time.time()
+    Zs, zs = parallel_apply_linear(F_h2, E, K, chunk_size=cs, streaming=True, fold_every=64)
+    ts = time.time() - t
+    ok_h2s = eq_indexed(Zw, zw, Zs, zs)
+    print(f"[H2str] chunk={cs}        streaming {ts:6.1f}s -> {n(Zs):4d}  == whole: {ok_h2s}", flush=True)
 
     # [SUBST] field-redef substitution (bare, the newly-parallelized path).
     a, b, c = fresh_indices(3)
@@ -68,9 +76,16 @@ if __name__ == '__main__':
     ok_sub = (canon(Sw + (-1) * Sp) == 0)
     print(f"[SUBST] L={nL} terms  whole {tsw:6.1f}s -> {n(Sw):4d}  "
           f"parallel {tsp:6.1f}s -> {n(Sp):4d}  == whole: {ok_sub}", flush=True)
+    cs2 = max(1, chunk2 // 4)
+    t = time.time()
+    Ss = parallel_apply_linear(subst, Lr, K, chunk_size=cs2, streaming=True, fold_every=64)
+    tss = time.time() - t
+    ok_subs = (canon(Sw + (-1) * Ss) == 0)
+    print(f"[SBstr] chunk={cs2}        streaming {tss:6.1f}s -> {n(Ss):4d}  == whole: {ok_subs}", flush=True)
 
-    if ok_h2 and ok_sub:
-        print("\n*** parallel == whole for compute_h2_violation AND field-redef subst ***", flush=True)
+    if ok_h2 and ok_h2s and ok_sub and ok_subs:
+        print("\n*** parallel (gather AND streaming) == whole for compute_h2_violation "
+              "AND field-redef subst ***", flush=True)
     else:
         print("\n*** CORRECTNESS FAIL ***", flush=True)
         sys.exit(1)

@@ -31,8 +31,14 @@ WALLTIME="${WALLTIME:-72:00:00}"
 MEM="${MEM:-360gb}"
 SUFFIX="${SUFFIX:-_par}"
 EXCL="${EXCL:-}"             # set EXCL=1 to reserve the whole node (no other tenants)
+CHUNKCAP="${CHUNKCAP:-}"    # set e.g. CHUNKCAP=256 for memory-bound runs: caps the
+                            # per-worker chunk so the parallel path uses many small
+                            # waves + a streaming fold (bounds peak RAM at K=40).
+                            # Unset = fast path (one chunk/worker). See jet.py.
 excl_line=""
 [ -n "$EXCL" ] && excl_line="#PBS -l place=excl"
+chunkcap_export=""
+[ -n "$CHUNKCAP" ] && chunkcap_export="export GRB_PARALLEL_CHUNK_CAP=${CHUNKCAP}"
 
 # run number -> script base name (matches submit_all.sh / runs/).
 RUNS=(
@@ -68,6 +74,7 @@ cd \$PBS_O_WORKDIR
 source env_setup.sh
 export PYTHONHASHSEED=0
 export GRB_PARALLEL_MIN=128
+${chunkcap_export}
 {
   echo "[par-run] node \$(hostname)  nproc=\$(nproc)  RUN=${name}  NMAX=${NMAX}  K=${K}  MODE=${MODE}"
   if [ "${MODE}" = "ab" ]; then
